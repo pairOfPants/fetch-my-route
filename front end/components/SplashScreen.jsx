@@ -46,7 +46,7 @@ export default function SplashScreen({ onLogin, onGuest, authError, isAuthentica
         filter: highContrast ? 'contrast(1.12) saturate(1.05)' : undefined,
       }}
       role="document"
-      aria-label="Welcome to Let&apos;s Leave"
+      aria-label="Welcome to Fetch My Route"
     >
       {/* Top bar */}
       <header className="relative z-10 w-full flex items-center justify-between px-8 py-4">
@@ -85,7 +85,7 @@ export default function SplashScreen({ onLogin, onGuest, authError, isAuthentica
                 className="font-extrabold tracking-tight drop-shadow-[0_2px_0_rgba(0,0,0,0.25)]"
                 style={{ fontSize: 'clamp(36px, 5vw, 72px)', color: brand.black }}
               >
-                Welcome to Let’s Leave!
+                Welcome to Fetch My Route!
               </motion.h2>
 
               <motion.p

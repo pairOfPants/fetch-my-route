@@ -58,7 +58,7 @@ const _state: _state = {
 // Optional hard-coded campus suggestions. If you prefer fully local suggestions
 // populate this array with { display_name, lat, lon } entries for common UMBC
 // 39., -76.
-// 39., -76. 39., -76. 39., -76.
+// 39., -76. 39., -76. 39., -76.git c
 // buildings. If non-empty, these will be matched first (simple substring match).
 const _campusSuggestions: Array<{ display_name: string; lat: string; lon: string; }> = [
   { display_name: 'Administration Building', lat: '39.253139642304824', lon: '-76.71346680103554' },
