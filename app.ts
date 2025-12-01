@@ -57,10 +57,12 @@ const _state: _state = {
 
 // Optional hard-coded campus suggestions. If you prefer fully local suggestions
 // populate this array with { display_name, lat, lon } entries for common UMBC
+// 39., -76.
+// 39., -76. 39., -76. 39., -76.
 // buildings. If non-empty, these will be matched first (simple substring match).
 const _campusSuggestions: Array<{ display_name: string; lat: string; lon: string; }> = [
-  { display_name: 'Albin O. Kuhn Library & Gallery', lat: '39.2546', lon: '-76.7139' },
-  { display_name: 'Engineering and Information Technology Building (EIT)', lat: '39.2529', lon: '-76.7139' },
+  { display_name: 'Albin O. Kuhn Library & Gallery', lat: '39.25660870000', lon: '-76.71245780000' },
+  { display_name: 'Engineering and Information Technology Building (EIT)', lat: '39.25457800522658', lon: '-76.7140007717771' },
   { display_name: 'Retriever Activities Center (RAC)', lat: '39.2542', lon: '-76.7164' },
   { display_name: 'University Center (UC)', lat: '39.2539', lon: '-76.7132' },
   { display_name: 'Fine Arts Building', lat: '39.2532', lon: '-76.7110' },
