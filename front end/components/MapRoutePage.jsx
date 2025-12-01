@@ -21,6 +21,8 @@ import {
   MousePointerClick,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { polylineDecorator } from "leaflet";
+-polylineDecorator
 
 export default function MapRoutePage({ onBackToSplash, user }) {
   const [leftPct, setLeftPct] = useState(50);
@@ -57,6 +59,8 @@ export default function MapRoutePage({ onBackToSplash, user }) {
   const endKeyRef = useRef(null);
   const mapClickEnabledRef = useRef(false);
   const placingRef = useRef("start");
+
+  const pawMarkersRef = useRef([]); //for keeping track of paw print markers
 
   const brand = useMemo(
     () => ({ gold: "#FFCB05", black: "#000000", ink: "#111111" }),
@@ -157,11 +161,11 @@ export default function MapRoutePage({ onBackToSplash, user }) {
         mapRef.current = mapInstance;
 
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          minZoom: 15,
+          minZoom: 17,
           maxZoom: 20,
           attribution: "&copy; OpenStreetMap contributors",
         }).addTo(mapInstance);
-        L.control.zoom({ position: "topright" }).addTo(mapInstance);
+        L.control.zoom({ position: "topleft" }).addTo(mapInstance);
 
         const res = await fetch("/OSM-data/campus.geojson");
         const data = await res.json();
@@ -173,9 +177,10 @@ export default function MapRoutePage({ onBackToSplash, user }) {
         }).addTo(mapInstance);
 
         if (graph.bounds && graph.bounds.isValid()) {
+          console.log("Fitting map to campus bounds", graph.bounds);
           mapInstance.fitBounds(graph.bounds.pad(0.05));
         } else {
-          mapInstance.setView([39.255, -76.712], 16);
+          mapInstance.setView([39.25540482760391, -76.71198247080514], 17);
         }
 
         clickHandler = (e) => handleMapClick(e.latlng.lat, e.latlng.lng);
@@ -279,6 +284,7 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     setStartSuggestions([]);
     setDestSuggestions([]);
 
+    //remove start/end markers and polyline from route
     if (startMarkerRef.current && mapRef.current) mapRef.current.removeLayer(startMarkerRef.current);
     if (endMarkerRef.current && mapRef.current) mapRef.current.removeLayer(endMarkerRef.current);
     if (routeLineRef.current && mapRef.current) mapRef.current.removeLayer(routeLineRef.current);
@@ -289,7 +295,10 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     endKeyRef.current = null;
     setStartInput("");
     setDestInput("");
-  };
+    // Remove pawprints
+    pawMarkersRef.current.forEach(marker => mapRef.current.removeLayer(marker));
+    pawMarkersRef.current = [];
+    };
 
   const tryRoute = () => {
     if (!graphRef.current || !startKeyRef.current || !endKeyRef.current) return;
@@ -311,16 +320,60 @@ export default function MapRoutePage({ onBackToSplash, user }) {
       return [n.lat, n.lng];
     });
 
-    if (routeLineRef.current && mapRef.current) mapRef.current.removeLayer(routeLineRef.current);
-    routeLineRef.current = L.polyline(latlngs, {
-      color: "#2563eb",
-      weight: 6,
-      opacity: 0.85,
-      className: "route-line",
-    });
-    routeLineRef.current.addTo(mapRef.current);
-    setDistanceLabel(formatMeters(distance));
-    setStatusMessage("Route drawn using campus paths.");
+
+    //TODO: 
+    // if (routeLineRef.current && mapRef.current) mapRef.current.removeLayer(routeLineRef.current);
+    // routeLineRef.current = L.polyline(latlngs, {
+    //   color: "#2563eb",
+    //   weight: 6,
+    //   opacity: 0.85,
+    //   className: "route-line",
+    // });
+    // routeLineRef.current.addTo(mapRef.current);
+    // setDistanceLabel(formatMeters(distance));
+    // setStatusMessage("Route drawn using campus paths.");
+    if (routeLineRef.current && mapRef.current) {
+  mapRef.current.removeLayer(routeLineRef.current);
+}
+
+//resets the current paw markers for each route draw
+pawMarkersRef.current.forEach(marker => mapRef.current.removeLayer(marker));
+pawMarkersRef.current = [];
+
+// Base polyline (invisible, just for path reference)
+routeLineRef.current = L.polyline(latlngs, {
+  color: 'yellow',
+  weight: 10,
+  opacity: 100,
+}).addTo(mapRef.current);
+
+// Pawprint icon
+const pawIcon = L.icon({
+  iconUrl: '/assets/pawprint.png',
+  iconSize: [24, 24],
+  iconAnchor: [12, 12],
+});
+
+// // Place pawprints along the route every Nth point
+// latlngs.forEach((latlng, index) => {
+//   if (index % 1 === 0) { // adjust '5' for spacing
+//     L.marker(latlng, { icon: pawIcon }).addTo(mapRef.current);
+//   }
+// });
+
+// Place pawprints along the route every Nth point
+latlngs.forEach((latlng, index) => {
+  if (index % 2 === 0) { // adjust spacing
+    const marker = L.marker(latlng, { icon: pawIcon }).addTo(mapRef.current);
+    pawMarkersRef.current.push(marker); // <-- save reference
+  }
+});
+
+setDistanceLabel(formatMeters(distance));
+setStatusMessage("Route drawn using campus paths.");
+
+setDistanceLabel(formatMeters(distance));
+setStatusMessage("Route drawn using campus paths.");
   };
 
   const geocode = async (query) => {
@@ -980,6 +1033,8 @@ function suggestBuildingsFromInput(input, campusSuggestions) {
 
 function buildGraphFromGeoJSON(L, geojson) {
   const nodes = new Map();
+  //NE 39.26014217656738, -76.70783527722227
+  //SW 39.251474682609576, -76.71689481504518
   const bounds = L.latLngBounds([]);
   const displayFeatures = [];
 
@@ -1205,4 +1260,36 @@ function Modal({ title, children, onClose }) {
       </motion.div>
     </>
   );
+}
+
+/***Below two functions are helper functions for drawing the pawprint markers evenly */
+// Calculate distance between two latlngs in meters
+function distanceBetween(a, b) {
+  return mapRef.current.distance(a, b); // Leaflet's built-in distance
+}
+
+// Returns array of points spaced every 'spacing' meters along the polyline
+function getEvenlySpacedPoints(latlngs, spacing = 10) {
+  const points = [];
+  if (latlngs.length === 0) return points;
+
+  let remaining = 0;
+  for (let i = 0; i < latlngs.length - 1; i++) {
+    const start = latlngs[i];
+    const end = latlngs[i + 1];
+    const segmentDist = distanceBetween(start, end);
+    let distAlongSegment = spacing - remaining;
+
+    while (distAlongSegment < segmentDist) {
+      const t = distAlongSegment / segmentDist;
+      const lat = start.lat + t * (end.lat - start.lat);
+      const lng = start.lng + t * (end.lng - start.lng);
+      points.push(L.latLng(lat, lng));
+      distAlongSegment += spacing;
+    }
+
+    remaining = distAlongSegment - segmentDist;
+  }
+
+  return points;
 }
