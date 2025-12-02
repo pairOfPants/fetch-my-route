@@ -22,8 +22,6 @@ import {
   MousePointerClick,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { polylineDecorator } from "leaflet";
--polylineDecorator
 
 export default function MapRoutePage({ onBackToSplash, user }) {
   const [leftPct, setLeftPct] = useState(50);
@@ -267,7 +265,7 @@ export default function MapRoutePage({ onBackToSplash, user }) {
       setStatusMessage("Destination set. Drawing route...");
       setPlacing("start");
     }
-    tryRoute({ start: resolvedStartLabel, dest: resolvedDestLabel });
+    tryRoute({ start: startInput.trim(), dest: destInput.trim() });
   };
 
   const placeMarker = (which, lat, lng) => {
@@ -318,7 +316,7 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     // Remove pawprints
     pawMarkersRef.current.forEach(marker => mapRef.current.removeLayer(marker));
     pawMarkersRef.current = [];
-    };
+  };
 
   const tryRoute = (labels) => {
     if (!graphRef.current || !startKeyRef.current || !endKeyRef.current) {
@@ -346,66 +344,74 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     });
 
 
-    //TODO: 
-    // if (routeLineRef.current && mapRef.current) mapRef.current.removeLayer(routeLineRef.current);
-    // routeLineRef.current = L.polyline(latlngs, {
-    //   color: "#2563eb",
-    //   weight: 6,
-    //   opacity: 0.85,
-    //   className: "route-line",
-    // });
-    // routeLineRef.current.addTo(mapRef.current);
-    // setDistanceLabel(formatMeters(distance));
-    // setStatusMessage("Route drawn using campus paths.");
     if (routeLineRef.current && mapRef.current) {
-  mapRef.current.removeLayer(routeLineRef.current);
-}
+      mapRef.current.removeLayer(routeLineRef.current);
+    }
 
-//resets the current paw markers for each route draw
-pawMarkersRef.current.forEach(marker => mapRef.current.removeLayer(marker));
-pawMarkersRef.current = [];
+    // reset paw markers for each new route
+    pawMarkersRef.current.forEach((marker) => mapRef.current.removeLayer(marker));
+    pawMarkersRef.current = [];
 
-// Base polyline (invisible, just for path reference)
-routeLineRef.current = L.polyline(latlngs, {
-  color: 'yellow',
-  weight: 10,
-  opacity: 100,
-}).addTo(mapRef.current);
+    // Base polyline (invisible, just for path reference)
+    routeLineRef.current = L.polyline(latlngs, {
+      color: "yellow",
+      weight: 10,
+      opacity: 1,
+    }).addTo(mapRef.current);
 
-// Pawprint icon
-const pawIcon = L.icon({
-  iconUrl: '/assets/pawprint.png',
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
-});
+    // Pawprint icon
+    const pawIcon = L.icon({
+      iconUrl: "/assets/pawprint.png",
+      iconSize: [24, 24],
+      iconAnchor: [12, 12],
+    });
 
-// // Place pawprints along the route every Nth point
-// latlngs.forEach((latlng, index) => {
-//   if (index % 1 === 0) { // adjust '5' for spacing
-//     L.marker(latlng, { icon: pawIcon }).addTo(mapRef.current);
-//   }
-// });
+    // Place pawprints along the route every Nth point
+    latlngs.forEach((latlng, index) => {
+      if (index % 2 === 0) {
+        const marker = L.marker(latlng, { icon: pawIcon }).addTo(mapRef.current);
+        pawMarkersRef.current.push(marker);
+      }
+    });
 
-// Place pawprints along the route every Nth point
-latlngs.forEach((latlng, index) => {
-  if (index % 2 === 0) { // adjust spacing
-    const marker = L.marker(latlng, { icon: pawIcon }).addTo(mapRef.current);
-    pawMarkersRef.current.push(marker); // <-- save reference
-  }
-});
+    setDistanceLabel(formatMeters(distance));
+    setStatusMessage("Route drawn using campus paths. Save it to reuse later.");
+    const normalizedStart = (labels?.start || startInput || "").trim();
+    const normalizedDest = (labels?.dest || destInput || "").trim();
+    if (normalizedStart && normalizedDest) {
+      const defaultName = `${normalizedStart} -> ${normalizedDest}`;
+      setPendingRoute({ start: normalizedStart, dest: normalizedDest });
+      setSaveName(defaultName);
+    } else {
+      setPendingRoute(null);
+    }
+    return true;
+  };
 
-setDistanceLabel(formatMeters(distance));
-setStatusMessage("Route drawn using campus paths.");
-
-setDistanceLabel(formatMeters(distance));
-setStatusMessage("Route drawn using campus paths.");
+  const findCampusMatch = (query) => {
+    const q = normalize(query);
+    if (!q) return null;
+    const tokens = q.split(" ").filter(Boolean);
+    let best = null;
+    let bestScore = 0;
+    campusBuildings.forEach((b) => {
+      const name = normalize(b.name);
+      let score = 0;
+      tokens.forEach((t) => {
+        if (name.includes(t)) score += 1;
+      });
+      if (score > bestScore) {
+        bestScore = score;
+        best = b;
+      }
+    });
+    return bestScore > 0 ? best : null;
   };
 
   const geocode = async (query) => {
     if (!query) return null;
-    const words = findCampusMatch(query);
-    const matches = suggestBuildingsFromInput(words, campusBuildings);
-    if (matches) {
+    const campus = findCampusMatch(query);
+    if (campus) {
       return { lat: campus.lat, lon: campus.lon, display_name: campus.name, source: "campus" };
     }
     try {
@@ -454,7 +460,7 @@ setStatusMessage("Route drawn using campus paths.");
     placeMarker("end", nearestE.lat, nearestE.lng);
     setStatusMessage("Drawing route...");
     setPlacing("start");
-    tryRoute();
+    tryRoute({ start: resolvedStartLabel, dest: resolvedDestLabel });
   };
 
   const toggleMapClick = () => {
@@ -603,6 +609,7 @@ function suggestBuildingsFromInput(input, campusSuggestions) {
       .filter((b) => normalize(b.name).includes(q))
       .slice(0, 6);
   };
+
 
   const handleSuggestionSelect = (which, suggestion) => {
     if (which === "start") {
