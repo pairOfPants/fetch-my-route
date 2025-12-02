@@ -45,6 +45,7 @@ export default function MapRoutePage({ onBackToSplash, user }) {
   const [pendingRoute, setPendingRoute] = useState(null);
   const [saveName, setSaveName] = useState("");
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
   const [useOSRM, setUseOSRM] = useState(false);
   const [instructions, setInstructions] = useState([]); // <-- Add state for instructions
   const userDisplayName = user?.displayName || user?.email || null;
@@ -66,6 +67,7 @@ export default function MapRoutePage({ onBackToSplash, user }) {
   const startMarkerRef = useRef(null);
   const endMarkerRef = useRef(null);
   const routeLineRef = useRef(null);
+  const userMarkerRef = useRef(null);
   const startKeyRef = useRef(null);
   const endKeyRef = useRef(null);
   const mapClickEnabledRef = useRef(false);
@@ -346,9 +348,11 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     if (startMarkerRef.current && mapRef.current) mapRef.current.removeLayer(startMarkerRef.current);
     if (endMarkerRef.current && mapRef.current) mapRef.current.removeLayer(endMarkerRef.current);
     if (routeLineRef.current && mapRef.current) mapRef.current.removeLayer(routeLineRef.current);
+    if (userMarkerRef.current && mapRef.current) mapRef.current.removeLayer(userMarkerRef.current);
     startMarkerRef.current = null;
     endMarkerRef.current = null;
     routeLineRef.current = null;
+    userMarkerRef.current = null;
     startKeyRef.current = null;
     endKeyRef.current = null;
     setStartInput("");
@@ -585,7 +589,7 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     { name: 'Patapsco Hall', lat: '39.255081965955036', lon: '-76.70673668410498' },
     { name: 'Potomac Hall', lat: '39.25606238825957', lon: '-76.70651576586262' },
     { name: 'Chesapeake Hall', lat: '39.256849988344115', lon: '-76.70873138610621' },
-    { name: 'Susquehanna Hall', lat: '39.255639813873316', lon: '-76.70848158822243' },
+    { name: 'Susquehanna Hall', lat: '39.25540', lon: '-76.70864' },
     { name: 'Erickson Hall', lat: '39.25727595128962', lon: '-76.70971290743068' },
     { name: 'Harbor Hall', lat: '39.2574527259495', lon: '-76.70849733643549' },
     { name: 'Walker Avenue Apartments', lat: '39.25954838908427', lon: '-76.71396897666577' },
@@ -814,6 +818,72 @@ function suggestBuildingsFromInput(input, campusSuggestions) {
     }
   };
 
+  const placeUserMarker = (lat, lng) => {
+    const L = leafletRef.current;
+    if (!L || !mapRef.current) return;
+    if (userMarkerRef.current) mapRef.current.removeLayer(userMarkerRef.current);
+    userMarkerRef.current = L.circleMarker([lat, lng], {
+      radius: 8,
+      fillColor: "#3b82f6",
+      color: "#1e3a8a",
+      weight: 2,
+      opacity: 0.9,
+      fillOpacity: 0.6,
+    }).addTo(mapRef.current);
+  };
+
+  const handleLocateMe = () => {
+    if (!navigator.geolocation) {
+      setStatusMessage("Geolocation is not supported in this browser.");
+      return;
+    }
+    if (!mapRef.current) {
+      setStatusMessage("Map not ready yet.");
+      return;
+    }
+    setIsLocating(true);
+    setStatusMessage("Locating...");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setIsLocating(false);
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (!graphRef.current) {
+          setStatusMessage("Graph not ready yet.");
+          return;
+        }
+        const nearest = findNearestNode(lat, lng, graphRef.current);
+        if (!nearest) {
+          setStatusMessage("No nearby path node for your location.");
+          return;
+        }
+        startKeyRef.current = nearest.key;
+        placeMarker("start", nearest.lat, nearest.lng);
+        placeUserMarker(lat, lng);
+        setStartInput("My location");
+        setPlacing("end");
+        try {
+          mapRef.current.flyTo([lat, lng], Math.max(mapRef.current.getZoom(), 18), { duration: 0.5 });
+        } catch {
+          /* no-op */
+        }
+        setStatusMessage("Start set from your location. Enter a destination to route.");
+        tryRoute({ start: "My location", dest: destInput.trim() });
+      },
+      (err) => {
+        setIsLocating(false);
+        if (err.code === err.PERMISSION_DENIED) {
+          setStatusMessage("Location blocked. Allow permission to use Locate me.");
+        } else if (err.code === err.TIMEOUT) {
+          setStatusMessage("Timed out while getting location. Try again.");
+        } else {
+          setStatusMessage("Unable to get your location right now.");
+        }
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+    );
+  };
+
   const canSaveCurrentRoute = Boolean(pendingRoute);
 
   return (
@@ -835,9 +905,18 @@ function suggestBuildingsFromInput(input, campusSuggestions) {
               value={startInput}
               onChange={(e) => handleInputChange("start", e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") routeFromInputs(); }}
-              className="w-full rounded-lg px-3 py-2 bg-white focus:outline-none"
+              className="w-full rounded-lg px-3 pr-24 py-2 bg-white focus:outline-none"
               aria-label="Start location"
             />
+            <button
+              type="button"
+              onClick={handleLocateMe}
+              disabled={!mapReady || isLocating}
+              className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1 rounded-md text-xs font-semibold border bg-slate-900 text-white disabled:opacity-50"
+              title="Use your current location as Start"
+            >
+              {isLocating ? "Locating..." : "Locate me"}
+            </button>
             {startSuggestions.length > 0 && (
               <Suggestions list={startSuggestions} onSelect={(s) => handleSuggestionSelect("start", s)} />
             )}
@@ -940,13 +1019,6 @@ function suggestBuildingsFromInput(input, campusSuggestions) {
               {distanceLabel && (
                 <div className="mt-1 text-xs text-white/80">Distance: {distanceLabel}</div>
               )}
-            </div>
-            <div
-              className="px-3 py-2 rounded-lg text-xs leading-snug max-w-[240px] shadow"
-              style={{ background: "rgba(0,0,0,0.6)", color: "#e2e8f0", border: "1px solid rgba(255,255,255,0.08)" }}
-            >
-              <p className="font-semibold mb-1">Tip</p>
-              <p>Turn on Map Click to drop start/destination, or type locations and press Route. Paths snap to campus walkways.</p>
             </div>
           </div>
         </div>
