@@ -182,7 +182,7 @@ export default function SplashScreen({ onLogin, onGuest, authError, isAuthentica
             <div className="flex items-center gap-6 flex-wrap">
               <div className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: brand.gold }} />
-                <span className="text-sm font-semibold tracking-wide opacity-90">Let’s Leave</span>
+                <span className="text-sm font-semibold tracking-wide opacity-90">Fetch My Route</span>
               </div>
 
               <button
