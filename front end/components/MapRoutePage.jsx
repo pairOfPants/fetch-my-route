@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import {
   LogOut,
   Bookmark,
+  BookmarkPlus,
   Route,
   Clock,
   Accessibility as A11yIcon,
@@ -36,6 +37,10 @@ export default function MapRoutePage({ onBackToSplash, user }) {
   const [statusMessage, setStatusMessage] = useState("Pick a start and destination to draw a route.");
   const [startSuggestions, setStartSuggestions] = useState([]);
   const [destSuggestions, setDestSuggestions] = useState([]);
+  const [savedRoutes, setSavedRoutes] = useState([]);
+  const [pendingRoute, setPendingRoute] = useState(null);
+  const [saveName, setSaveName] = useState("");
+  const [showSaveModal, setShowSaveModal] = useState(false);
   const userDisplayName = user?.displayName || user?.email || null;
 
   // bottom bar modals
@@ -62,6 +67,7 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     () => ({ gold: "#FFCB05", black: "#000000", ink: "#111111" }),
     []
   );
+  const SAVED_ROUTES_KEY = "letsleave:savedRoutes";
 
   useEffect(() => {
     const prefs = JSON.parse(localStorage.getItem("letsleave:prefs") || "{}");
@@ -75,6 +81,23 @@ export default function MapRoutePage({ onBackToSplash, user }) {
       JSON.stringify({ ...prefs, highContrast, textScale })
     );
   }, [highContrast, textScale]);
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(SAVED_ROUTES_KEY) || "[]");
+      if (Array.isArray(stored)) setSavedRoutes(stored);
+    } catch {
+      setSavedRoutes([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SAVED_ROUTES_KEY, JSON.stringify(savedRoutes));
+    } catch {
+      /* no-op */
+    }
+  }, [savedRoutes]);
 
   const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
   const fullyCollapseLeft = () => setLeftPct(0);
@@ -115,12 +138,6 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     { id: 6, text: "Routing happens locally with campus data bundled in the app; no external API keys required." },
   ];
 
-  const savedRoutesList = [
-    { id: "rt1", name: "Commons → ENG", start: "Commons Lot", dest: "Engineering Building" },
-    { id: "rt2", name: "Parking → Library", start: "Lot 22 Parking", dest: "AOK Library" },
-    { id: "rt3", name: "The Quad → CMSC446", start: "Main Quad", dest: "ITE 106" },
-    { id: "rt4", name: "return home", start: "your location", dest: "Chesapeake Hall 205" },
-  ];
 
   // close with ESC (both saved routes + confirm)
   useEffect(() => {
@@ -245,7 +262,7 @@ export default function MapRoutePage({ onBackToSplash, user }) {
       setStatusMessage("Destination set. Drawing route...");
       setPlacing("start");
     }
-    tryRoute();
+    tryRoute({ start: resolvedStartLabel, dest: resolvedDestLabel });
   };
 
   const placeMarker = (which, lat, lng) => {
@@ -278,6 +295,9 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     setPlacing("start");
     setStartSuggestions([]);
     setDestSuggestions([]);
+    setPendingRoute(null);
+    setSaveName("");
+    setShowSaveModal(false);
 
     if (startMarkerRef.current && mapRef.current) mapRef.current.removeLayer(startMarkerRef.current);
     if (endMarkerRef.current && mapRef.current) mapRef.current.removeLayer(endMarkerRef.current);
@@ -291,18 +311,23 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     setDestInput("");
   };
 
-  const tryRoute = () => {
-    if (!graphRef.current || !startKeyRef.current || !endKeyRef.current) return;
+  const tryRoute = (labels) => {
+    if (!graphRef.current || !startKeyRef.current || !endKeyRef.current) {
+      setPendingRoute(null);
+      return false;
+    }
     if (startKeyRef.current === endKeyRef.current) {
       if (routeLineRef.current && mapRef.current) mapRef.current.removeLayer(routeLineRef.current);
       setDistanceLabel("Start and destination match.");
-      return;
+      setPendingRoute(null);
+      return false;
     }
 
     const { path, distance } = dijkstra(graphRef.current, startKeyRef.current, endKeyRef.current);
     if (!path || path.length === 0 || !isFinite(distance)) {
       setStatusMessage("No route found between those points.");
-      return;
+      setPendingRoute(null);
+      return false;
     }
 
     const L = leafletRef.current;
@@ -320,7 +345,17 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     });
     routeLineRef.current.addTo(mapRef.current);
     setDistanceLabel(formatMeters(distance));
-    setStatusMessage("Route drawn using campus paths.");
+    setStatusMessage("Route drawn using campus paths. Save it to reuse later.");
+    const normalizedStart = (labels?.start || startInput || "").trim();
+    const normalizedDest = (labels?.dest || destInput || "").trim();
+    if (normalizedStart && normalizedDest) {
+      const defaultName = `${normalizedStart} -> ${normalizedDest}`;
+      setPendingRoute({ start: normalizedStart, dest: normalizedDest });
+      setSaveName(defaultName);
+    } else {
+      setPendingRoute(null);
+    }
+    return true;
   };
 
   const geocode = async (query) => {
@@ -351,6 +386,11 @@ export default function MapRoutePage({ onBackToSplash, user }) {
       setStatusMessage("Could not find one or both locations. Try a different description.");
       return;
     }
+
+    const resolvedStartLabel = s.display_name || startInput.trim();
+    const resolvedDestLabel = e.display_name || destInput.trim();
+    setStartInput(resolvedStartLabel);
+    setDestInput(resolvedDestLabel);
 
     if (!graphRef.current) {
       setStatusMessage("Graph not ready yet.");
@@ -491,8 +531,34 @@ export default function MapRoutePage({ onBackToSplash, user }) {
       setPlacing("start");
     }
     setStatusMessage(`Selected ${label}. Drawing route if both points set.`);
-    tryRoute();
+    const startLabel = which === "start" ? label : startInput.trim();
+    const destLabel = which === "dest" ? label : destInput.trim();
+    tryRoute({ start: startLabel, dest: destLabel });
   };
+
+  const openSaveModal = () => {
+    if (!pendingRoute) return;
+    if (!saveName.trim()) {
+      setSaveName(`${pendingRoute.start} -> ${pendingRoute.dest}`);
+    }
+    setShowSavedRoutes(false);
+    setConfirmRoute(null);
+    setShowSaveModal(true);
+  };
+
+  const saveCurrentRoute = () => {
+    if (!pendingRoute) return;
+    const nameToUse = (saveName || `${pendingRoute.start} -> ${pendingRoute.dest}`).trim();
+    const id = `rt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    setSavedRoutes((prev) => {
+      const withoutDup = prev.filter((r) => !(r.start === pendingRoute.start && r.dest === pendingRoute.dest));
+      return [...withoutDup, { ...pendingRoute, id, name: nameToUse }];
+    });
+    setStatusMessage("Route saved. Open Saved routes to load it later.");
+    setShowSaveModal(false);
+  };
+
+  const canSaveCurrentRoute = Boolean(pendingRoute);
 
   return (
     <div
@@ -561,6 +627,16 @@ export default function MapRoutePage({ onBackToSplash, user }) {
           >
             <MousePointerClick className="h-4 w-4" />
             Map Click: {mapClickEnabled ? "On" : "Off"}
+          </button>
+          <button
+            onClick={openSaveModal}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl font-semibold border"
+            style={{ background: canSaveCurrentRoute ? brand.gold : "#0f172a", color: canSaveCurrentRoute ? "#111" : "#9ca3af", borderColor: "#2b2b2b" }}
+            disabled={!canSaveCurrentRoute}
+            title={canSaveCurrentRoute ? "Save this route for later use" : "Enter start and destination, then draw a route"}
+          >
+            <BookmarkPlus className="h-4 w-4" />
+            Save route
           </button>
           {userDisplayName && (
             <div className="text-right mr-1 leading-tight text-white">
@@ -729,6 +805,72 @@ export default function MapRoutePage({ onBackToSplash, user }) {
         </div>
       </footer>
 
+      {/* SAVE ROUTE PROMPT */}
+      <AnimatePresence>
+        {showSaveModal && pendingRoute && (
+          <>
+            <motion.div
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[95]"
+              onClick={() => setShowSaveModal(false)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            />
+            <motion.div
+              className="fixed z-[105] rounded-2xl shadow-xl p-6 w-[92vw] max-w-[480px] border-2 text-white"
+              style={{
+                background: brand.black,
+                borderColor: brand.gold,
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+              }}
+              initial={{ opacity: 0, scale: 0.92, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 10 }}
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="font-bold text-lg">Save this route</h2>
+                <button onClick={() => setShowSaveModal(false)} className="hover:opacity-80">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="space-y-3">
+                <label className="block text-sm">
+                  <span className="block text-xs uppercase tracking-wide text-white/70 mb-1">Name</span>
+                  <input
+                    type="text"
+                    value={saveName}
+                    onChange={(e) => setSaveName(e.target.value)}
+                    className="w-full rounded-lg px-3 py-2 bg-white text-black focus:outline-none"
+                    placeholder={`${pendingRoute.start} -> ${pendingRoute.dest}`}
+                  />
+                </label>
+                <div className="text-xs opacity-80 bg-white/5 border border-white/10 rounded-lg p-3 space-y-1">
+                  <div>Start: {pendingRoute.start}</div>
+                  <div>Destination: {pendingRoute.dest}</div>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-4">
+                <button
+                  onClick={() => setShowSaveModal(false)}
+                  className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveCurrentRoute}
+                  className="px-3 py-2 rounded-lg font-semibold"
+                  style={{ background: brand.gold, color: "#111" }}
+                >
+                  Save route
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* SAVED ROUTES + CONFIRM */}
       <AnimatePresence>
         {showSavedRoutes && (
@@ -760,18 +902,26 @@ export default function MapRoutePage({ onBackToSplash, user }) {
                 </button>
               </div>
               <div className="space-y-3">
-                {savedRoutesList.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => setConfirmRoute(r)}
-                    className="w-full text-left p-3 rounded-lg bg-white/10 border border-white/20 hover:bg-white/20 transition"
-                  >
-                    {r.name}
-                    <div className="text-xs opacity-70 mt-1">
-                      Start: {r.start} • Destination: {r.dest}
-                    </div>
-                  </button>
-                ))}
+                {savedRoutes.length === 0 ? (
+                  <div className="text-sm opacity-80 bg-white/5 border border-white/10 rounded-lg p-3">
+                    Save a route after drawing it to see it here.
+                  </div>
+                ) : (
+                  savedRoutes.map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => setConfirmRoute(r)}
+                      className="w-full text-left p-3 rounded-lg bg-white/10 border border-white/20 hover:bg-white/20 transition"
+                      style={{ wordBreak: "break-word", whiteSpace: "normal" }}
+                      title={`Start: ${r.start} | Destination: ${r.dest}`}
+                    >
+                      {r.name}
+                      <div className="text-xs opacity-70 mt-1" style={{ wordBreak: "break-word", whiteSpace: "normal" }}>
+                        Start: {r.start} | Destination: {r.dest}
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
             </motion.div>
 
@@ -800,8 +950,8 @@ export default function MapRoutePage({ onBackToSplash, user }) {
                     <div className="mb-4">
                       <div className="font-semibold mb-1">Load this route?</div>
                       <div className="text-sm opacity-90">{confirmRoute.name}</div>
-                      <div className="text-xs opacity-70 mt-1">
-                        Start: {confirmRoute.start} • Destination: {confirmRoute.dest}
+                      <div className="text-xs opacity-70 mt-1" style={{ wordBreak: "break-word", whiteSpace: "normal" }}>
+                        Start: {confirmRoute.start} | Destination: {confirmRoute.dest}
                       </div>
                     </div>
                     <div className="flex justify-end gap-2">

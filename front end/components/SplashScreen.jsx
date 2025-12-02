@@ -85,7 +85,7 @@ export default function SplashScreen({ onLogin, onGuest, authError, isAuthentica
                 className="font-extrabold tracking-tight drop-shadow-[0_2px_0_rgba(0,0,0,0.25)]"
                 style={{ fontSize: 'clamp(36px, 5vw, 72px)', color: brand.black }}
               >
-                Welcome to Let’s Leave!
+                Welcome to Fetch My Route!
               </motion.h2>
 
               <motion.p
@@ -182,7 +182,7 @@ export default function SplashScreen({ onLogin, onGuest, authError, isAuthentica
             <div className="flex items-center gap-6 flex-wrap">
               <div className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: brand.gold }} />
-                <span className="text-sm font-semibold tracking-wide opacity-90">Let’s Leave</span>
+                <span className="text-sm font-semibold tracking-wide opacity-90">Fetch My Route</span>
               </div>
 
               <button
