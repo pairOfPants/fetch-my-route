@@ -20,8 +20,11 @@ import {
   MapPin,
   Navigation,
   MousePointerClick,
+  Trash2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
+import { db } from "@/lib/firebaseClient";
 
 export default function MapRoutePage({ onBackToSplash, user }) {
   const [leftPct, setLeftPct] = useState(50);
@@ -42,6 +45,8 @@ export default function MapRoutePage({ onBackToSplash, user }) {
   const [saveName, setSaveName] = useState("");
   const [showSaveModal, setShowSaveModal] = useState(false);
   const userDisplayName = user?.displayName || user?.email || null;
+  const userId = user?.uid || null;
+  const isAuthenticated = Boolean(userId);
 
   // bottom bar modals
   const [open, setOpen] = useState(null); // 'how', 'a11y', 'settings'
@@ -85,21 +90,52 @@ export default function MapRoutePage({ onBackToSplash, user }) {
   }, [highContrast, textScale]);
 
   useEffect(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem(SAVED_ROUTES_KEY) || "[]");
-      if (Array.isArray(stored)) setSavedRoutes(stored);
-    } catch {
-      setSavedRoutes([]);
+    if (!isAuthenticated) {
+      try {
+        const stored = JSON.parse(localStorage.getItem(SAVED_ROUTES_KEY) || "[]");
+        if (Array.isArray(stored)) setSavedRoutes(stored);
+      } catch {
+        setSavedRoutes([]);
+      }
+      return;
     }
-  }, []);
+
+    const routesRef = collection(db, "users", userId, "routes");
+    const unsubscribe = onSnapshot(
+      routesRef,
+      (snapshot) => {
+        const routes = snapshot.docs
+          .map((d) => {
+            const data = d.data() || {};
+            return {
+              id: d.id,
+              name: data.name || `${data.start || "Start"} -> ${data.dest || "Destination"}`,
+              start: data.start || "",
+              dest: data.dest || "",
+              createdAt: data.createdAt?.toMillis?.() ?? 0,
+            };
+          })
+          .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+        setSavedRoutes(routes);
+      },
+      (err) => {
+        console.error("Failed to load saved routes", err);
+        setStatusMessage("Unable to load saved routes right now.");
+        setSavedRoutes([]);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [isAuthenticated, userId]);
 
   useEffect(() => {
+    if (isAuthenticated) return;
     try {
       localStorage.setItem(SAVED_ROUTES_KEY, JSON.stringify(savedRoutes));
     } catch {
       /* no-op */
     }
-  }, [savedRoutes]);
+  }, [savedRoutes, isAuthenticated]);
 
   const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
   const fullyCollapseLeft = () => setLeftPct(0);
@@ -478,20 +514,20 @@ export default function MapRoutePage({ onBackToSplash, user }) {
   const campusBuildings = useMemo(
     () => [
     { name: 'Administration Building', lat: '39.253139642304824', lon: '-76.71346680103554' },
-    { name: 'Albin O. Kuhn Library & Gallery', lat: '39.25660870000', lon: '-76.71245780000' },
-    { name: 'Engineering and Information Technology Building (EIT)', lat: '39.25457800522658', lon: '-76.7140007717771' },
-    { name: 'Retriever Activities Center (RAC)', lat: '39.25519773199664', lon: '-76.71493830501481' },
+    { name: 'Albin O. Kuhn Library & Gallery', lat: '39.25630', lon: '-76.71155' },
+    { name: 'Engineering Building', lat: '39.25457800522658', lon: '-76.7140007717771' },
+    { name: 'Retriever Activities Center (RAC)', lat: '39.25289', lon: '-76.71298' },
     { name: 'University Center (UC)', lat: '39.254311897833894', lon: '-76.71321113149463' },
     { name: 'Fine Arts Building', lat: '39.25507302014908', lon: '-76.7134835986718' },
     { name: 'Performing Arts and Humanities Building (PAHB)', lat: '39.25519773199664', lon: '-76.71493830501481' },
     { name: 'Math & Psychology Building', lat: '39.25414744528721', lon: '-76.71235531860366' },
-    { name: 'Biological Sciences Building', lat: '39.25478924768158', lon: '-76.71211805398877' },
+    { name: 'Biological Sciences Building', lat: '39.25477', lon: '-76.71217' },
     { name: 'Chemistry Building', lat: '39.25501939795551', lon: '-76.71303157922023' },
     { name: 'Physics Building', lat: '39.254509055300275', lon: '-76.70955550430352' },
     { name: 'Information Technology/Engineering (ITE)', lat: '39.25384780762936', lon: '-76.71410470533095' },
     { name: 'Public Policy Building', lat: '39.25532623674318', lon: '-76.70925261800328' },
     { name: 'Sondheim Hall', lat: '39.25341011749078', lon: '-76.71285953326642' },
-    { name: 'Sherman Hall', lat: '39.253570103778465', lon: '-76.71356789706488' },
+    { name: 'Sherman Hall', lat: '39.25403', lon: '-76.71365' },
     { name: 'The Commons', lat: '39.255054104325616', lon: '-76.71070371980493' },
     { name: 'Patapsco Hall', lat: '39.255081965955036', lon: '-76.70673668410498' },
     { name: 'Potomac Hall', lat: '39.25606238825957', lon: '-76.70651576586262' },
@@ -504,16 +540,17 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     { name: 'Hillside Apartments', lat: '39.2583895527449', lon: '-76.7090028757811' },
     { name: 'True Grits Dining Hall', lat: '39.255776326112745', lon: '-76.70773529041553' },
     { name: 'UMBC Event Center', lat: '39.25236663879639', lon: '-76.70744131697373' },
-    { name: 'Chesapeake Employers Insurance Arena', lat: '39.25236663879639', lon: '-76.70744131697373' },
-    { name: 'Administration Parking Garage', lat: '39.25302693252615', lon: '-76.71420411442547' },
+    { name: 'Chesapeake Employers Insurance Arena', lat: '39.252', lon: '-76.70744131697373' },
+    { name: 'Administration Parking Garage', lat: '39.25201', lon: '-76.71284' },
     { name: 'Commons Garage', lat: '39.253422965942974', lon: '-76.7094846596835' },
     { name: 'Walker Avenue Garage', lat: '39.25727870467512', lon: '-76.71231647640951' },
     { name: 'PAHB Parking Lot', lat: '39.255380076952584', lon: '-76.71460837990287' },
     { name: 'UMBC Bookstore', lat: '39.254591718818936', lon: '-76.7108989975142' },
     { name: 'UMBC Stadium', lat: '39.250562339226114', lon: '-76.70737195403173' },
-    { name: 'UMBC Technology Center', lat: '39.25519728191527', lon: '-76.70236441392518' },
+    { name: 'UMBC Technology Center', lat: '39.23471', lon: '-76.71377' },
     { name: 'bwtech@UMBC North', lat: '39.24946312236066', lon: '-76.7144157716465' },
-    { name: 'bwtech@UMBC South', lat: '39.24813201069917', lon: '-76.71439688284313' }
+    { name: 'bwtech@UMBC South', lat: '39.24813201069917', lon: '-76.71439688284313' },
+    { name: 'Interdisciplinary Life Sciences Building', lat: '39.25393191088295', lon: '-76.71108146644416' }
 ],
     []
   );
@@ -661,16 +698,67 @@ function suggestBuildingsFromInput(input, campusSuggestions) {
     setShowSaveModal(true);
   };
 
-  const saveCurrentRoute = () => {
+  const saveCurrentRoute = async () => {
     if (!pendingRoute) return;
     const nameToUse = (saveName || `${pendingRoute.start} -> ${pendingRoute.dest}`).trim();
-    const id = `rt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    setSavedRoutes((prev) => {
-      const withoutDup = prev.filter((r) => !(r.start === pendingRoute.start && r.dest === pendingRoute.dest));
-      return [...withoutDup, { ...pendingRoute, id, name: nameToUse }];
-    });
-    setStatusMessage("Route saved. Open Saved routes to load it later.");
-    setShowSaveModal(false);
+    const existing = savedRoutes.find((r) => r.start === pendingRoute.start && r.dest === pendingRoute.dest);
+    const listIsFull = savedRoutes.length >= 5 && !existing;
+    if (listIsFull) {
+      setStatusMessage("You can only keep 5 saved routes. Delete one before saving another.");
+      return;
+    }
+
+    if (!isAuthenticated) {
+      const id = existing?.id || `rt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      setSavedRoutes((prev) => {
+        const withoutDup = prev.filter((r) => !(r.start === pendingRoute.start && r.dest === pendingRoute.dest));
+        return [...withoutDup, { ...pendingRoute, id, name: nameToUse, createdAt: Date.now() }];
+      });
+      setStatusMessage("Route saved locally. Sign in to sync across devices.");
+      setShowSaveModal(false);
+      return;
+    }
+
+    try {
+      const payload = {
+        name: nameToUse,
+        start: pendingRoute.start,
+        dest: pendingRoute.dest,
+        updatedAt: serverTimestamp(),
+      };
+      if (existing) {
+        await updateDoc(doc(db, "users", userId, "routes", existing.id), payload);
+      } else {
+        await addDoc(collection(db, "users", userId, "routes"), {
+          ...payload,
+          createdAt: serverTimestamp(),
+        });
+      }
+      setStatusMessage("Route saved to your account.");
+      setShowSaveModal(false);
+    } catch (err) {
+      console.error("Failed to save route", err);
+      setStatusMessage("Unable to save route right now. Please try again.");
+    }
+  };
+
+  const deleteRoute = async (route) => {
+    if (!route) return;
+    if (confirmRoute?.id === route.id) setConfirmRoute(null);
+
+    if (!isAuthenticated) {
+      setSavedRoutes((prev) => prev.filter((r) => r.id !== route.id));
+      setStatusMessage("Route deleted locally.");
+      return;
+    }
+
+    try {
+      await deleteDoc(doc(db, "users", userId, "routes", route.id));
+      setStatusMessage("Route deleted from your account.");
+    } catch (err) {
+      console.error("Failed to delete route", err);
+      setStatusMessage("Unable to delete route right now.");
+    }
   };
 
   const canSaveCurrentRoute = Boolean(pendingRoute);
@@ -1002,7 +1090,7 @@ function suggestBuildingsFromInput(input, campusSuggestions) {
               style={{
                 background: brand.black,
                 borderColor: brand.gold,
-                top: "50%",
+                top: "45%",
                 left: "50%",
                 transform: "translate(-50%, -50%)",
               }}
@@ -1016,29 +1104,42 @@ function suggestBuildingsFromInput(input, campusSuggestions) {
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              <div className="space-y-3">
+              <div className="space-y-3 pr-1">
                 {savedRoutes.length === 0 ? (
                   <div className="text-sm opacity-80 bg-white/5 border border-white/10 rounded-lg p-3">
                     Save a route after drawing it to see it here.
                   </div>
                 ) : (
-                  savedRoutes.map((r) => (
-                    <button
-                      key={r.id}
-                      onClick={() => setConfirmRoute(r)}
-                      className="w-full text-left p-3 rounded-lg bg-white/10 border border-white/20 hover:bg-white/20 transition"
-                      style={{ wordBreak: "break-word", whiteSpace: "normal" }}
-                      title={`Start: ${r.start} | Destination: ${r.dest}`}
-                    >
-                      {r.name}
-                      <div className="text-xs opacity-70 mt-1" style={{ wordBreak: "break-word", whiteSpace: "normal" }}>
-                        Start: {r.start} | Destination: {r.dest}
+                    savedRoutes.map((r) => (
+                      <div
+                        key={r.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setConfirmRoute(r)}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setConfirmRoute(r); } }}
+                        className="w-full text-left p-3 rounded-lg bg-white/10 border border-white/20 hover:bg-white/20 transition flex items-start justify-between gap-3 cursor-pointer"
+                        style={{ wordBreak: "break-word", whiteSpace: "normal" }}
+                        title={`Start: ${r.start} | Destination: ${r.dest}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold break-words">{r.name}</div>
+                          <div className="text-xs opacity-70 mt-1 break-words">
+                            Start: {r.start} | Destination: {r.dest}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); deleteRoute(r); }}
+                          className="p-2 rounded-md bg-white/10 hover:bg-white/20 border border-white/20 shrink-0"
+                          title="Delete saved route"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            </motion.div>
+                    ))
+                  )}
+                </div>
+              </motion.div>
 
             <AnimatePresence>
               {confirmRoute && (
