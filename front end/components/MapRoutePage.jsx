@@ -1350,10 +1350,10 @@ function suggestBuildingsFromInput(input, campusSuggestions) {
 
 function buildGraphFromGeoJSON(L, geojson) {
   const nodes = new Map();
-  //NE 39.26014217656738, -76.70783527722227
-  //SW 39.251474682609576, -76.71689481504518
   const bounds = L.latLngBounds([]);
   const displayFeatures = [];
+  // Collect building areas (polygons) for name/context lookup
+  const buildingAreas = [];
 
   const nodeKey = (lat, lng) => `${lat.toFixed(6)},${lng.toFixed(6)}`;
 
@@ -1396,19 +1396,48 @@ function buildGraphFromGeoJSON(L, geojson) {
     });
   };
 
+  // Helper: collect building polygons for later name lookup
+  const collectBuildingArea = (feat) => {
+    const props = feat.properties || {};
+    const name = props.name || props["building:name"] || null;
+    const isBuildingTagged = props.building || name;
+    if (!isBuildingTagged) return;
+
+    const geom = feat.geometry;
+    const polySets =
+      geom.type === "Polygon"
+        ? [geom.coordinates]
+        : geom.type === "MultiPolygon"
+        ? geom.coordinates
+        : null;
+    if (!polySets) return;
+
+    // Store as arrays of rings in [lat,lng] for point-in-polygon tests
+    const rings = polySets.map((poly) =>
+      poly.map((ring) => ring.map(([lon, lat]) => [lat, lon]))
+    );
+    buildingAreas.push({ name, props, rings });
+  };
+
   (geojson.features || []).forEach((feat) => {
-    if (!shouldUseFeature(feat)) return;
+    if (!feat || !feat.geometry) return;
     const g = feat.geometry;
     if (g.type === "LineString") {
-      processLine(g.coordinates);
-      displayFeatures.push(feat);
+      if (shouldUseFeature(feat)) {
+        processLine(g.coordinates);
+        displayFeatures.push(feat);
+      }
     } else if (g.type === "MultiLineString") {
-      g.coordinates.forEach((part) => processLine(part));
-      displayFeatures.push(feat);
+      if (shouldUseFeature(feat)) {
+        g.coordinates.forEach((part) => processLine(part));
+        displayFeatures.push(feat);
+      }
+    } else if (g.type === "Polygon" || g.type === "MultiPolygon") {
+      collectBuildingArea(feat);
     }
   });
 
-  return { nodes, bounds, displayFeatures };
+  return { nodes, bounds, displayFeatures, buildingAreas };
 }
 
 function dijkstra(graph, startKey, endKey) {
@@ -1743,16 +1772,60 @@ function getFeatureAtNode(lat, lng, graph) {
   return null;
 }
 
+// Point-in-polygon (ray casting) for one ring
+function pointInRing(lat, lng, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [yi, xi] = ring[i]; // lat, lng
+    const [yj, xj] = ring[j];
+    const intersect =
+      ((xi > lng) !== (xj > lng)) &&
+      (lat < ((yj - yi) * (lng - xi)) / (xj - xi + 1e-12) + yi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// Polygon with holes: first ring is outer, subsequent rings are holes
+function pointInPolygon(lat, lng, rings) {
+  if (!rings || rings.length === 0) return false;
+  const outer = rings[0];
+  if (!pointInRing(lat, lng, outer)) return false;
+  // Exclude if inside any hole
+  for (let h = 1; h < rings.length; h++) {
+    if (pointInRing(lat, lng, rings[h])) return false;
+  }
+  return true;
+}
+
+// Helper: resolve building context at a node using building polygons
+function getBuildingAtNode(lat, lng, graph) {
+  const areas = graph?.buildingAreas || [];
+  for (const area of areas) {
+    // MultiPolygon: area.rings is an array of polygons; each polygon is array of rings
+    for (const rings of area.rings) {
+      if (pointInPolygon(lat, lng, rings)) {
+        return area;
+      }
+    }
+  }
+  return null;
+}
+
 // Helper: extract floor and building info at a node
 function getContextForNode(lat, lng, graph) {
-  const feat = getFeatureAtNode(lat, lng, graph);
-  const props = feat?.properties || {};
-  // Read 'level' tag instead of 'floor:' or 'floor'
-  const level = props.level ?? null;
-  const buildingName = props.name ?? props["building:name"] ?? null;
-  const isBuilding = props.building === "yes" || !!buildingName || props["indoor"] === "room";
-  const vertical = props.highway === "steps" || props["conveying"] === "yes" || props["elevator"] === "yes";
-  return { floor: level, buildingName, isBuilding, vertical };
+  const lineFeat = getFeatureAtNode(lat, lng, graph);
+  const lineProps = lineFeat?.properties || {};
+  const levelTag = lineProps.level ?? null;
+
+  // Prefer building polygon name over line feature names
+  const buildingArea = getBuildingAtNode(lat, lng, graph);
+  const buildingName = buildingArea?.name || lineProps["building:name"] || null;
+
+  const isBuilding = Boolean(buildingArea) || lineProps.building === "yes" || lineProps["indoor"] === "room";
+  const vertical = lineProps.highway === "steps" || lineProps["conveying"] === "yes" || lineProps["elevator"] === "yes";
+
+  return { floor: levelTag, buildingName, isBuilding, vertical };
 }
 
 // Enhanced instruction generator: building entry + floor transitions + fewer turns
