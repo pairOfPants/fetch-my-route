@@ -22,6 +22,8 @@ import {
   MousePointerClick,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { polylineDecorator } from "leaflet";
+-polylineDecorator
 
 export default function MapRoutePage({ onBackToSplash, user }) {
   const [leftPct, setLeftPct] = useState(50);
@@ -62,6 +64,8 @@ export default function MapRoutePage({ onBackToSplash, user }) {
   const endKeyRef = useRef(null);
   const mapClickEnabledRef = useRef(false);
   const placingRef = useRef("start");
+
+  const pawMarkersRef = useRef([]); //for keeping track of paw print markers
 
   const brand = useMemo(
     () => ({ gold: "#FFCB05", black: "#000000", ink: "#111111" }),
@@ -174,11 +178,11 @@ export default function MapRoutePage({ onBackToSplash, user }) {
         mapRef.current = mapInstance;
 
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          minZoom: 15,
+          minZoom: 17,
           maxZoom: 20,
           attribution: "&copy; OpenStreetMap contributors",
         }).addTo(mapInstance);
-        L.control.zoom({ position: "topright" }).addTo(mapInstance);
+        L.control.zoom({ position: "topleft" }).addTo(mapInstance);
 
         const res = await fetch("/OSM-data/campus.geojson");
         const data = await res.json();
@@ -190,9 +194,10 @@ export default function MapRoutePage({ onBackToSplash, user }) {
         }).addTo(mapInstance);
 
         if (graph.bounds && graph.bounds.isValid()) {
+          console.log("Fitting map to campus bounds", graph.bounds);
           mapInstance.fitBounds(graph.bounds.pad(0.05));
         } else {
-          mapInstance.setView([39.255, -76.712], 16);
+          mapInstance.setView([39.25540482760391, -76.71198247080514], 17);
         }
 
         clickHandler = (e) => handleMapClick(e.latlng.lat, e.latlng.lng);
@@ -299,6 +304,7 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     setSaveName("");
     setShowSaveModal(false);
 
+    //remove start/end markers and polyline from route
     if (startMarkerRef.current && mapRef.current) mapRef.current.removeLayer(startMarkerRef.current);
     if (endMarkerRef.current && mapRef.current) mapRef.current.removeLayer(endMarkerRef.current);
     if (routeLineRef.current && mapRef.current) mapRef.current.removeLayer(routeLineRef.current);
@@ -309,7 +315,10 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     endKeyRef.current = null;
     setStartInput("");
     setDestInput("");
-  };
+    // Remove pawprints
+    pawMarkersRef.current.forEach(marker => mapRef.current.removeLayer(marker));
+    pawMarkersRef.current = [];
+    };
 
   const tryRoute = (labels) => {
     if (!graphRef.current || !startKeyRef.current || !endKeyRef.current) {
@@ -336,32 +345,67 @@ export default function MapRoutePage({ onBackToSplash, user }) {
       return [n.lat, n.lng];
     });
 
-    if (routeLineRef.current && mapRef.current) mapRef.current.removeLayer(routeLineRef.current);
-    routeLineRef.current = L.polyline(latlngs, {
-      color: "#2563eb",
-      weight: 6,
-      opacity: 0.85,
-      className: "route-line",
-    });
-    routeLineRef.current.addTo(mapRef.current);
-    setDistanceLabel(formatMeters(distance));
-    setStatusMessage("Route drawn using campus paths. Save it to reuse later.");
-    const normalizedStart = (labels?.start || startInput || "").trim();
-    const normalizedDest = (labels?.dest || destInput || "").trim();
-    if (normalizedStart && normalizedDest) {
-      const defaultName = `${normalizedStart} -> ${normalizedDest}`;
-      setPendingRoute({ start: normalizedStart, dest: normalizedDest });
-      setSaveName(defaultName);
-    } else {
-      setPendingRoute(null);
-    }
-    return true;
+
+    //TODO: 
+    // if (routeLineRef.current && mapRef.current) mapRef.current.removeLayer(routeLineRef.current);
+    // routeLineRef.current = L.polyline(latlngs, {
+    //   color: "#2563eb",
+    //   weight: 6,
+    //   opacity: 0.85,
+    //   className: "route-line",
+    // });
+    // routeLineRef.current.addTo(mapRef.current);
+    // setDistanceLabel(formatMeters(distance));
+    // setStatusMessage("Route drawn using campus paths.");
+    if (routeLineRef.current && mapRef.current) {
+  mapRef.current.removeLayer(routeLineRef.current);
+}
+
+//resets the current paw markers for each route draw
+pawMarkersRef.current.forEach(marker => mapRef.current.removeLayer(marker));
+pawMarkersRef.current = [];
+
+// Base polyline (invisible, just for path reference)
+routeLineRef.current = L.polyline(latlngs, {
+  color: 'yellow',
+  weight: 10,
+  opacity: 100,
+}).addTo(mapRef.current);
+
+// Pawprint icon
+const pawIcon = L.icon({
+  iconUrl: '/assets/pawprint.png',
+  iconSize: [24, 24],
+  iconAnchor: [12, 12],
+});
+
+// // Place pawprints along the route every Nth point
+// latlngs.forEach((latlng, index) => {
+//   if (index % 1 === 0) { // adjust '5' for spacing
+//     L.marker(latlng, { icon: pawIcon }).addTo(mapRef.current);
+//   }
+// });
+
+// Place pawprints along the route every Nth point
+latlngs.forEach((latlng, index) => {
+  if (index % 2 === 0) { // adjust spacing
+    const marker = L.marker(latlng, { icon: pawIcon }).addTo(mapRef.current);
+    pawMarkersRef.current.push(marker); // <-- save reference
+  }
+});
+
+setDistanceLabel(formatMeters(distance));
+setStatusMessage("Route drawn using campus paths.");
+
+setDistanceLabel(formatMeters(distance));
+setStatusMessage("Route drawn using campus paths.");
   };
 
   const geocode = async (query) => {
     if (!query) return null;
-    const campus = findCampusMatch(query);
-    if (campus) {
+    const words = findCampusMatch(query);
+    const matches = suggestBuildingsFromInput(words, campusBuildings);
+    if (matches) {
       return { lat: campus.lat, lon: campus.lon, display_name: campus.name, source: "campus" };
     }
     try {
@@ -427,26 +471,44 @@ export default function MapRoutePage({ onBackToSplash, user }) {
   const pillNextLabel = mapReady ? `Next click: ${placing === "start" ? "Start" : "Destination"}` : "Loading map...";
   const campusBuildings = useMemo(
     () => [
-      { name: "Administration Building", lat: 39.253139642304824, lon: -76.71346680103554 },
-      { name: "Albin O. Kuhn Library", lat: 39.25638818964179, lon: -76.71142946588373 },
-      { name: "Biological Sciences Building", lat: 39.25478924768158, lon: -76.71211805398877 },
-      { name: "Chemistry Building", lat: 39.25501939795551, lon: -76.71303157922023 },
-      { name: "Chesapeake Employers Insurance Arena", lat: 39.25236663879639, lon: -76.70744131697373 },
-      { name: "Engineering Building", lat: 39.254579817103114, lon: -76.71373618817292 },
-      { name: "Fine Arts Building", lat: 39.25507302014908, lon: -76.7134835986718 },
-      { name: "Information Technology and Engineering (ITE) Building", lat: 39.25384780762936, lon: -76.71410470533095 },
-      { name: "Interdisciplinary Life Sciences Building", lat: 39.25393191088295, lon: -76.71108146644416 },
-      { name: "Math & Psychology Building", lat: 39.254399, lon: -76.712625 },
-      { name: "Performing Arts and Humanities Building", lat: 39.25519773199664, lon: -76.71493830501481 },
-      { name: "Physics Building", lat: 39.254509055300275, lon: -76.70955550430352 },
-      { name: "Public Policy Building", lat: 39.25532623674318, lon: -76.70925261800328 },
-      { name: "Retriever Activities Center (RAC)", lat: 39.252914008110466, lon: -76.71254218232883 },
-      { name: "Sherman Hall", lat: 39.253570103778465, lon: -76.71356789706488 },
-      { name: "Sondheim Hall", lat: 39.25341011749078, lon: -76.71285953326642 },
-      { name: "The Commons", lat: 39.255054104325616, lon: -76.71070371980493 },
-      { name: "True Grits Dining Hall", lat: 39.255776326112745, lon: -76.70773529041553 },
-      { name: "University Center", lat: 39.254311897833894, lon: -76.71321113149463 },
-    ],
+    { name: 'Administration Building', lat: '39.253139642304824', lon: '-76.71346680103554' },
+    { name: 'Albin O. Kuhn Library & Gallery', lat: '39.25660870000', lon: '-76.71245780000' },
+    { name: 'Engineering and Information Technology Building (EIT)', lat: '39.25457800522658', lon: '-76.7140007717771' },
+    { name: 'Retriever Activities Center (RAC)', lat: '39.25519773199664', lon: '-76.71493830501481' },
+    { name: 'University Center (UC)', lat: '39.254311897833894', lon: '-76.71321113149463' },
+    { name: 'Fine Arts Building', lat: '39.25507302014908', lon: '-76.7134835986718' },
+    { name: 'Performing Arts and Humanities Building (PAHB)', lat: '39.25519773199664', lon: '-76.71493830501481' },
+    { name: 'Math & Psychology Building', lat: '39.25414744528721', lon: '-76.71235531860366' },
+    { name: 'Biological Sciences Building', lat: '39.25478924768158', lon: '-76.71211805398877' },
+    { name: 'Chemistry Building', lat: '39.25501939795551', lon: '-76.71303157922023' },
+    { name: 'Physics Building', lat: '39.254509055300275', lon: '-76.70955550430352' },
+    { name: 'Information Technology/Engineering (ITE)', lat: '39.25384780762936', lon: '-76.71410470533095' },
+    { name: 'Public Policy Building', lat: '39.25532623674318', lon: '-76.70925261800328' },
+    { name: 'Sondheim Hall', lat: '39.25341011749078', lon: '-76.71285953326642' },
+    { name: 'Sherman Hall', lat: '39.253570103778465', lon: '-76.71356789706488' },
+    { name: 'The Commons', lat: '39.255054104325616', lon: '-76.71070371980493' },
+    { name: 'Patapsco Hall', lat: '39.255081965955036', lon: '-76.70673668410498' },
+    { name: 'Potomac Hall', lat: '39.25606238825957', lon: '-76.70651576586262' },
+    { name: 'Chesapeake Hall', lat: '39.256849988344115', lon: '-76.70873138610621' },
+    { name: 'Susquehanna Hall', lat: '39.255639813873316', lon: '-76.70848158822243' },
+    { name: 'Erickson Hall', lat: '39.25727595128962', lon: '-76.70971290743068' },
+    { name: 'Harbor Hall', lat: '39.2574527259495', lon: '-76.70849733643549' },
+    { name: 'Walker Avenue Apartments', lat: '39.25954838908427', lon: '-76.71396897666577' },
+    { name: 'West Hill Apartments', lat: '39.258901446872265', lon: '-76.71259174840102' },
+    { name: 'Hillside Apartments', lat: '39.2583895527449', lon: '-76.7090028757811' },
+    { name: 'True Grits Dining Hall', lat: '39.255776326112745', lon: '-76.70773529041553' },
+    { name: 'UMBC Event Center', lat: '39.25236663879639', lon: '-76.70744131697373' },
+    { name: 'Chesapeake Employers Insurance Arena', lat: '39.25236663879639', lon: '-76.70744131697373' },
+    { name: 'Administration Parking Garage', lat: '39.25302693252615', lon: '-76.71420411442547' },
+    { name: 'Commons Garage', lat: '39.253422965942974', lon: '-76.7094846596835' },
+    { name: 'Walker Avenue Garage', lat: '39.25727870467512', lon: '-76.71231647640951' },
+    { name: 'PAHB Parking Lot', lat: '39.255380076952584', lon: '-76.71460837990287' },
+    { name: 'UMBC Bookstore', lat: '39.254591718818936', lon: '-76.7108989975142' },
+    { name: 'UMBC Stadium', lat: '39.250562339226114', lon: '-76.70737195403173' },
+    { name: 'UMBC Technology Center', lat: '39.25519728191527', lon: '-76.70236441392518' },
+    { name: 'bwtech@UMBC North', lat: '39.24946312236066', lon: '-76.7144157716465' },
+    { name: 'bwtech@UMBC South', lat: '39.24813201069917', lon: '-76.71439688284313' }
+],
     []
   );
 
@@ -460,25 +522,71 @@ export default function MapRoutePage({ onBackToSplash, user }) {
 
   const normalize = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
-  const findCampusMatch = (query) => {
-    const q = normalize(query);
-    if (!q) return null;
-    let best = null;
-    let bestScore = 0;
-    campusBuildings.forEach((b) => {
-      const name = normalize(b.name);
-      const tokens = q.split(" ").filter(Boolean);
-      let score = 0;
-      tokens.forEach((t) => {
-        if (name.includes(t)) score += 1;
-      });
-      if (score > bestScore) {
-        bestScore = score;
-        best = b;
-      }
+ /**
+ * Validates and splits an input string into words
+ * @param m The input string to validate and split (e.g. "Performing Arts & Humanities 305")
+ * @returns Array of words from the input string
+ */
+function validateInput(m) {
+    // Remove any leading/trailing whitespace
+    const trimmed = m.trim();
+    // Split on whitespace and filter out any empty strings
+    const words = trimmed.split(/\s+/).filter(word => word.length > 0);
+    return words;
+}
+/**
+ * Suggests buildings based on input words
+ * @param input Array of words to match against building names
+ * @param campusSuggestions Array of building suggestions with display_name property
+ * @returns Filtered array of building names that match all input words
+ */
+function suggestBuildingsFromInput(input, campusSuggestions) {
+    // Helper: compute Levenshtein distance between two strings
+    function levenshtein(a, b) {
+        const m = a.length;
+        const n = b.length;
+        const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+        for (let i = 0; i <= m; i++)
+            dp[i][0] = i;
+        for (let j = 0; j <= n; j++)
+            dp[0][j] = j;
+        for (let i = 1; i <= m; i++) {
+            for (let j = 1; j <= n; j++) {
+                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+            }
+        }
+        return dp[m][n];
+    }
+    // Helper: decide if an input word matches a target word roughly
+    function wordMatches(inputWord, targetWord) {
+        const a = inputWord.toLowerCase();
+        const b = targetWord.toLowerCase();
+        if (b.indexOf(a) !== -1)
+            return true; // substring
+        if (a.indexOf(b) !== -1)
+            return true; // inverse substring
+        // Accept small typos: allow edit distance relative to length
+        const maxDist = Math.max(1, Math.floor(Math.min(a.length, b.length) / 4));
+        return levenshtein(a, b) <= maxDist;
+    }
+    // We'll include a building when ANY input word matches ANY word in the building's display name.
+    // This is intentionally permissive to surface candidates when the user makes small typos.
+    return campusSuggestions.filter(b => {
+        const name = b.display_name || '';
+        // Split the building name into words (also split on punctuation)
+        const nameWords = name.split(/[^\w]+/).filter(Boolean);
+        for (const iw of input) {
+            for (const nw of nameWords) {
+                if (wordMatches(iw, nw)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     });
-    return bestScore > 0 ? best : null;
-  };
+}
+
 
   const handleInputChange = (which, value) => {
     if (which === "start") setStartInput(value);
@@ -1065,6 +1173,8 @@ export default function MapRoutePage({ onBackToSplash, user }) {
 
 function buildGraphFromGeoJSON(L, geojson) {
   const nodes = new Map();
+  //NE 39.26014217656738, -76.70783527722227
+  //SW 39.251474682609576, -76.71689481504518
   const bounds = L.latLngBounds([]);
   const displayFeatures = [];
 
@@ -1290,4 +1400,36 @@ function Modal({ title, children, onClose }) {
       </motion.div>
     </>
   );
+}
+
+/***Below two functions are helper functions for drawing the pawprint markers evenly */
+// Calculate distance between two latlngs in meters
+function distanceBetween(a, b) {
+  return mapRef.current.distance(a, b); // Leaflet's built-in distance
+}
+
+// Returns array of points spaced every 'spacing' meters along the polyline
+function getEvenlySpacedPoints(latlngs, spacing = 10) {
+  const points = [];
+  if (latlngs.length === 0) return points;
+
+  let remaining = 0;
+  for (let i = 0; i < latlngs.length - 1; i++) {
+    const start = latlngs[i];
+    const end = latlngs[i + 1];
+    const segmentDist = distanceBetween(start, end);
+    let distAlongSegment = spacing - remaining;
+
+    while (distAlongSegment < segmentDist) {
+      const t = distAlongSegment / segmentDist;
+      const lat = start.lat + t * (end.lat - start.lat);
+      const lng = start.lng + t * (end.lng - start.lng);
+      points.push(L.latLng(lat, lng));
+      distAlongSegment += spacing;
+    }
+
+    remaining = distAlongSegment - segmentDist;
+  }
+
+  return points;
 }
