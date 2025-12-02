@@ -25,6 +25,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
+import { getRoute, isOSRMAvailable, generateBasicInstructions } from "@/lib/osrmClient";
 
 export default function MapRoutePage({ onBackToSplash, user }) {
   const [leftPct, setLeftPct] = useState(50);
@@ -45,6 +46,8 @@ export default function MapRoutePage({ onBackToSplash, user }) {
   const [saveName, setSaveName] = useState("");
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
+  const [useOSRM, setUseOSRM] = useState(false);
+  const [instructions, setInstructions] = useState([]); // <-- Add state for instructions
   const userDisplayName = user?.displayName || user?.email || null;
   const userId = user?.uid || null;
   const isAuthenticated = Boolean(userId);
@@ -339,6 +342,7 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     setPendingRoute(null);
     setSaveName("");
     setShowSaveModal(false);
+    setInstructions([]); // <-- Clear instructions
 
     //remove start/end markers and polyline from route
     if (startMarkerRef.current && mapRef.current) mapRef.current.removeLayer(startMarkerRef.current);
@@ -358,7 +362,19 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     pawMarkersRef.current = [];
   };
 
-  const tryRoute = (labels) => {
+  useEffect(() => {
+    // Check if OSRM server is available
+    isOSRMAvailable().then(available => {
+      setUseOSRM(available);
+      if (available) {
+        console.log('OSRM server is available for routing');
+      } else {
+        console.log('OSRM server not available, using local Dijkstra');
+      }
+    });
+  }, []);
+
+  const tryRoute = async (labels) => {
     if (!graphRef.current || !startKeyRef.current || !endKeyRef.current) {
       setPendingRoute(null);
       return false;
@@ -367,32 +383,66 @@ export default function MapRoutePage({ onBackToSplash, user }) {
       if (routeLineRef.current && mapRef.current) mapRef.current.removeLayer(routeLineRef.current);
       setDistanceLabel("Start and destination match.");
       setPendingRoute(null);
-      return false;
-    }
-
-    const { path, distance } = dijkstra(graphRef.current, startKeyRef.current, endKeyRef.current);
-    if (!path || path.length === 0 || !isFinite(distance)) {
-      setStatusMessage("No route found between those points.");
-      setPendingRoute(null);
+      setInstructions([]); // Clear instructions if no route
       return false;
     }
 
     const L = leafletRef.current;
-    const latlngs = path.map((k) => {
-      const n = graphRef.current.nodes.get(k);
-      return [n.lat, n.lng];
-    });
+    let path, distance, latlngs, osrmGeometry;
 
+    // Try OSRM first if available
+    if (useOSRM) {
+      try {
+        const startNode = graphRef.current.nodes.get(startKeyRef.current);
+        const endNode = graphRef.current.nodes.get(endKeyRef.current);
+        setStatusMessage("Fetching route from OSRM server...");
+        const osrmRoute = await getRoute(
+          startNode.lat,
+          startNode.lng,
+          endNode.lat,
+          endNode.lng
+        );
+        latlngs = osrmRoute.geometry.map(([lon, lat]) => [lat, lon]);
+        distance = osrmRoute.distance;
+        osrmGeometry = osrmRoute.geometry;
+        setStatusMessage("Route generated using OSRM server.");
+      } catch (error) {
+        setStatusMessage("OSRM unavailable, using local routing...");
+        setUseOSRM(false);
+      }
+    }
+
+    // Fallback to local Dijkstra if OSRM failed or unavailable
+    if (!latlngs) {
+      const result = dijkstra(graphRef.current, startKeyRef.current, endKeyRef.current);
+      path = result.path;
+      distance = result.distance;
+      if (!path || path.length === 0 || !isFinite(distance)) {
+        setStatusMessage("No route found between those points.");
+        setPendingRoute(null);
+        setInstructions([]); // Clear instructions if no route
+        return false;
+      }
+      latlngs = path.map((k) => {
+        const n = graphRef.current.nodes.get(k);
+        return [n.lat, n.lng];
+      });
+      // Convert to [lon, lat] for instruction generation
+      osrmGeometry = latlngs.map(([lat, lon]) => [lon, lat]);
+      setStatusMessage("Route drawn using local pathfinding.");
+    }
+
+    console.log('Drawing route with', latlngs.length, 'points');
 
     if (routeLineRef.current && mapRef.current) {
       mapRef.current.removeLayer(routeLineRef.current);
     }
 
-    // reset paw markers for each new route
+    // Reset paw markers for each new route
     pawMarkersRef.current.forEach((marker) => mapRef.current.removeLayer(marker));
     pawMarkersRef.current = [];
 
-    // Base polyline (invisible, just for path reference)
+    // Base polyline
     routeLineRef.current = L.polyline(latlngs, {
       color: "yellow",
       weight: 10,
@@ -406,7 +456,7 @@ export default function MapRoutePage({ onBackToSplash, user }) {
       iconAnchor: [12, 12],
     });
 
-    // Place pawprints along the route every Nth point
+    // Place pawprints along the route
     latlngs.forEach((latlng, index) => {
       if (index % 2 === 0) {
         const marker = L.marker(latlng, { icon: pawIcon }).addTo(mapRef.current);
@@ -415,7 +465,6 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     });
 
     setDistanceLabel(formatMeters(distance));
-    setStatusMessage("Route drawn using campus paths. Save it to reuse later.");
     const normalizedStart = (labels?.start || startInput || "").trim();
     const normalizedDest = (labels?.dest || destInput || "").trim();
     if (normalizedStart && normalizedDest) {
@@ -425,6 +474,10 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     } else {
       setPendingRoute(null);
     }
+
+    // Generate and set instructions (building + floor aware)
+    setInstructions(generateInstructionsWithContext(osrmGeometry, graphRef.current));
+
     return true;
   };
 
@@ -1038,6 +1091,22 @@ function suggestBuildingsFromInput(input, campusSuggestions) {
                   <A11yIcon className="h-3.5 w-3.5" /> step-free focus
                 </span>
               </div>
+              {/* Human-readable instructions (scrollable) */}
+              {instructions.length > 0 && (
+                <div className="mt-3 bg-white/10 rounded-lg p-3 text-white text-sm max-h-56 overflow-y-auto">
+                  <div className="font-semibold mb-1">Directions:</div>
+                  <ol className="list-decimal pl-5 space-y-1">
+                    {instructions.map((inst, idx) => (
+                      <li key={idx}>
+                        {inst.type}
+                        {inst.type !== 'Arrive at destination' && inst.distance
+                          ? ` in ${inst.distance} meters`
+                          : ''}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
             </div>
 
             <div className="flex-1 overflow-auto px-4 pb-6">
@@ -1612,4 +1681,257 @@ function getEvenlySpacedPoints(latlngs, spacing = 10) {
   }
 
   return points;
+}
+
+// Helper to extract floor info from OSM ways (features)
+function getFloorForNode(lat, lng, graph) {
+  // Find the feature (way) that contains this node and has a floor tag
+  for (const feat of graph.displayFeatures || []) {
+    if (!feat.geometry) continue;
+    let coordsArr = [];
+    if (feat.geometry.type === "LineString") {
+      coordsArr = [feat.geometry.coordinates];
+    } else if (feat.geometry.type === "MultiLineString") {
+      coordsArr = feat.geometry.coordinates;
+    }
+    for (const coords of coordsArr) {
+      for (const [lon, lat2] of coords) {
+        if (Math.abs(lat2 - lat) < 1e-6 && Math.abs(lon - lng) < 1e-6) {
+          if (feat.properties && feat.properties["floor:"]) {
+            return feat.properties["floor:"];
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// Enhanced instruction generator with floor transitions
+function generateInstructionsWithFloors(coordinates, graph) {
+  if (!coordinates || coordinates.length < 2) return [];
+
+  function toRad(deg) { return deg * Math.PI / 180; }
+  function toDeg(rad) { return rad * 180 / Math.PI; }
+  function haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  }
+  function bearing(lat1, lon1, lat2, lon2) {
+    const dLon = toRad(lon2 - lon1);
+    const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+    const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+              Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+    return (toDeg(Math.atan2(y, x)) + 360) % 360;
+  }
+
+  const instructions = [];
+  let prevBearing = null;
+  let prevCoord = coordinates[0];
+  let distanceSinceLast = 0;
+  let prevFloor = null;
+
+  // Try to get initial floor
+  if (graph && graph.displayFeatures) {
+    const [lon, lat] = prevCoord;
+    prevFloor = getFloorForNode(lat, lon, graph);
+  }
+
+  for (let i = 1; i < coordinates.length; i++) {
+    const [lon1, lat1] = prevCoord;
+    const [lon2, lat2] = coordinates[i];
+    const dist = haversine(lat1, lon1, lat2, lon2);
+    const currBearing = bearing(lat1, lon1, lat2, lon2);
+
+    // Floor detection
+    let currFloor = prevFloor;
+    if (graph && graph.displayFeatures) {
+      currFloor = getFloorForNode(lat2, lon2, graph) ?? prevFloor;
+    }
+
+    // Floor transition
+    if (prevFloor !== null && currFloor !== null && currFloor !== prevFloor) {
+      const upOrDown = Number(currFloor) > Number(prevFloor) ? "up" : "down";
+      instructions.push({
+        type: `Take elevator ${upOrDown} to floor ${currFloor}`,
+        at: i,
+        distance: Math.round(distanceSinceLast),
+      });
+      distanceSinceLast = 0;
+      prevFloor = currFloor;
+    }
+
+    // Turn detection
+    if (prevBearing !== null) {
+      let turnAngle = currBearing - prevBearing;
+      if (turnAngle > 180) turnAngle -= 360;
+      if (turnAngle < -180) turnAngle += 360;
+
+      if (Math.abs(turnAngle) > 30) { // threshold for a "turn"
+        instructions.push({
+          type: turnAngle > 0 ? 'Turn right' : 'Turn left',
+          at: i,
+          distance: Math.round(distanceSinceLast),
+        });
+        distanceSinceLast = 0;
+      }
+    }
+
+    distanceSinceLast += dist;
+    prevBearing = currBearing;
+    prevCoord = coordinates[i];
+  }
+
+  // Final instruction
+  instructions.push({
+    type: 'Arrive at destination',
+    at: coordinates.length - 1,
+    distance: Math.round(distanceSinceLast),
+  });
+
+  return instructions;
+}
+
+// Helper: find feature that contains a node [lat,lng]
+function getFeatureAtNode(lat, lng, graph) {
+  if (!graph?.displayFeatures) return null;
+  for (const feat of graph.displayFeatures) {
+    const g = feat?.geometry;
+    if (!g) continue;
+    const sets = g.type === "LineString" ? [g.coordinates] :
+                 g.type === "MultiLineString" ? g.coordinates : [];
+    for (const coords of sets) {
+      for (const [lon2, lat2] of coords) {
+        if (Math.abs(lat2 - lat) < 1e-6 && Math.abs(lon2 - lng) < 1e-6) {
+          return feat;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// Helper: extract floor and building info at a node
+function getContextForNode(lat, lng, graph) {
+  const feat = getFeatureAtNode(lat, lng, graph);
+  const props = feat?.properties || {};
+  // Read 'level' tag instead of 'floor:' or 'floor'
+  const level = props.level ?? null;
+  const buildingName = props.name ?? props["building:name"] ?? null;
+  const isBuilding = props.building === "yes" || !!buildingName || props["indoor"] === "room";
+  const vertical = props.highway === "steps" || props["conveying"] === "yes" || props["elevator"] === "yes";
+  return { floor: level, buildingName, isBuilding, vertical };
+}
+
+// Enhanced instruction generator: building entry + floor transitions + fewer turns
+function generateInstructionsWithContext(coordinates, graph) {
+  if (!coordinates || coordinates.length < 2) return [];
+
+  function toRad(deg) { return deg * Math.PI / 180; }
+  function toDeg(rad) { return rad * 180 / Math.PI; }
+  function haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  }
+  function bearing(lat1, lon1, lat2, lon2) {
+    const dLon = toRad(lon2 - lon1);
+    const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+    const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+              Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+    return (toDeg(Math.atan2(y, x)) + 360) % 360;
+  }
+
+  const instructions = [];
+  let prevBearing = null;
+  let prevCoord = coordinates[0];
+  let distanceSinceLast = 0;
+
+  let prevCtx = (() => {
+    const [lon, lat] = prevCoord;
+    return getContextForNode(lat, lon, graph);
+  })();
+
+  const TURN_THRESHOLD_DEG = 50;  // less chatty
+  const MIN_SEGMENT_EMIT_M = 18;  // avoid tiny segments
+
+  for (let i = 1; i < coordinates.length; i++) {
+    const [lon1, lat1] = prevCoord;
+    const [lon2, lat2] = coordinates[i];
+    const dist = haversine(lat1, lon1, lat2, lon2);
+    const currBearing = bearing(lat1, lon1, lat2, lon2);
+    const currCtx = getContextForNode(lat2, lon2, graph);
+
+    // Building entry
+    if (currCtx?.isBuilding && !prevCtx?.isBuilding) {
+      const bName = currCtx.buildingName ? ` ${currCtx.buildingName}` : "";
+      instructions.push({
+        type: `Enter${bName}`,
+        at: i,
+        distance: Math.round(distanceSinceLast),
+      });
+      distanceSinceLast = 0;
+    }
+
+    // Floor transitions (prefer explicit elevator wording if vertical segment flagged)
+    const prevFloorNum = prevCtx?.floor != null ? Number(prevCtx.floor) : null;
+    const currFloorNum = currCtx?.floor != null ? Number(currCtx.floor) : null;
+    if (prevFloorNum != null && currFloorNum != null && currFloorNum !== prevFloorNum) {
+      const dir = currFloorNum > prevFloorNum ? "up" : "down";
+      const verb = currCtx?.vertical ? "Take elevator" : "Go";
+      instructions.push({
+        type: `${verb} ${dir} to floor ${currFloorNum}`,
+        at: i,
+        distance: Math.round(distanceSinceLast),
+      });
+      distanceSinceLast = 0;
+    }
+
+    // Turn detection (reduced noise)
+    if (prevBearing !== null) {
+      let turnAngle = currBearing - prevBearing;
+      if (turnAngle > 180) turnAngle -= 360;
+      if (turnAngle < -180) turnAngle += 360;
+
+      if (Math.abs(turnAngle) >= TURN_THRESHOLD_DEG && distanceSinceLast >= MIN_SEGMENT_EMIT_M) {
+        instructions.push({
+          type: turnAngle > 0 ? "Turn right" : "Turn left",
+          at: i,
+          distance: Math.round(distanceSinceLast),
+        });
+        distanceSinceLast = 0;
+      }
+    }
+
+    distanceSinceLast += dist;
+    prevBearing = currBearing;
+    prevCoord = coordinates[i];
+    prevCtx = currCtx;
+  }
+
+  // Final instruction
+  instructions.push({
+    type: "Arrive at destination",
+    at: coordinates.length - 1,
+    distance: Math.round(distanceSinceLast),
+  });
+
+  // Collapse duplicates and micro-segments
+  const filtered = [];
+  for (const inst of instructions) {
+    const last = filtered[filtered.length - 1];
+    if (last && last.type === inst.type) {
+      last.distance += inst.distance;
+    } else {
+      filtered.push(inst);
+    }
+  }
+  return filtered;
 }

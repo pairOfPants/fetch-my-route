@@ -2,3 +2,5 @@ API_KEY.txt
 .idea
 old/
 *.drawio
+./'front end'/.env.local
+Homework-1.pdf
