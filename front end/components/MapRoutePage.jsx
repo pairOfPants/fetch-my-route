@@ -37,6 +37,8 @@ const [newRouteStart, setNewRouteStart] = useState("");
 const [newRouteDest, setNewRouteDest] = useState("");
 const [newRouteStartSuggestions, setNewRouteStartSuggestions] = useState([]);
 const [newRouteDestSuggestions, setNewRouteDestSuggestions] = useState([]);
+const [newRouteErrors, setNewRouteErrors] = useState({ name: "", start: "", dest: "" });
+
 
   const [confirmRoute, setConfirmRoute] = useState(null);
   const [startInput, setStartInput] = useState("");
@@ -627,20 +629,31 @@ const [newRouteDestSuggestions, setNewRouteDestSuggestions] = useState([]);
     setShowSavedRoutes(false);
   };
 
-  const normalize = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const normalize = (s) => {
+  if (s == null) return "";
+  if (typeof s !== "string") {
+    try {
+      s = String(s);
+    } catch {
+      return "";
+    }
+  }
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+};
 
- /**
+/**
  * Validates and splits an input string into words
  * @param m The input string to validate and split (e.g. "Performing Arts & Humanities 305")
  * @returns Array of words from the input string
  */
 function validateInput(m) {
-    // Remove any leading/trailing whitespace
-    const trimmed = m.trim();
-    // Split on whitespace and filter out any empty strings
-    const words = trimmed.split(/\s+/).filter(word => word.length > 0);
-    return words;
+  // Remove any leading/trailing whitespace
+  const trimmed = m.trim();
+  // Split on whitespace and filter out any empty strings
+  const words = trimmed.split(/\s+/).filter((word) => word.length > 0);
+  return words;
 }
+
 /**
  * Suggests buildings based on input words
  * @param input Array of words to match against building names
@@ -648,58 +661,72 @@ function validateInput(m) {
  * @returns Filtered array of building names that match all input words
  */
 function suggestBuildingsFromInput(input, campusSuggestions) {
-    // Helper: compute Levenshtein distance between two strings
-    function levenshtein(a, b) {
-        const m = a.length;
-        const n = b.length;
-        const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-        for (let i = 0; i <= m; i++)
-            dp[i][0] = i;
-        for (let j = 0; j <= n; j++)
-            dp[0][j] = j;
-        for (let i = 1; i <= m; i++) {
-            for (let j = 1; j <= n; j++) {
-                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-                dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
-            }
-        }
-        return dp[m][n];
+  // Helper: compute Levenshtein distance between two strings
+  function levenshtein(a, b) {
+    const m = a.length;
+    const n = b.length;
+    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        dp[i][j] = Math.min(
+          dp[i - 1][j] + 1,
+          dp[i][j - 1] + 1,
+          dp[i - 1][j - 1] + cost
+        );
+      }
     }
-    // Helper: decide if an input word matches a target word roughly
-    function wordMatches(inputWord, targetWord) {
-        const a = inputWord.toLowerCase();
-        const b = targetWord.toLowerCase();
-        if (b.indexOf(a) !== -1)
-            return true; // substring
-        if (a.indexOf(b) !== -1)
-            return true; // inverse substring
-        // Accept small typos: allow edit distance relative to length
-        const maxDist = Math.max(1, Math.floor(Math.min(a.length, b.length) / 4));
-        return levenshtein(a, b) <= maxDist;
-    }
-    // We'll include a building when ANY input word matches ANY word in the building's display name.
-    // This is intentionally permissive to surface candidates when the user makes small typos.
-    return campusSuggestions.filter(b => {
-        const name = b.display_name || '';
-        // Split the building name into words (also split on punctuation)
-        const nameWords = name.split(/[^\w]+/).filter(Boolean);
-        for (const iw of input) {
-            for (const nw of nameWords) {
-                if (wordMatches(iw, nw)) {
-                    return true;
-                }
-            }
+    return dp[m][n];
+  }
+
+  // Helper: decide if an input word matches a target word roughly
+  function wordMatches(inputWord, targetWord) {
+    const a = inputWord.toLowerCase();
+    const b = targetWord.toLowerCase();
+    if (b.indexOf(a) !== -1) return true; // substring
+    if (a.indexOf(b) !== -1) return true; // inverse substring
+    // Accept small typos: allow edit distance relative to length
+    const maxDist = Math.max(1, Math.floor(Math.min(a.length, b.length) / 4));
+    return levenshtein(a, b) <= maxDist;
+  }
+
+  // We'll include a building when ANY input word matches ANY word in the building's display name.
+  // This is intentionally permissive to surface candidates when the user makes small typos.
+  return campusSuggestions.filter((b) => {
+    const name = b.display_name || "";
+    // Split the building name into words (also split on punctuation)
+    const nameWords = name.split(/[^\w]+/).filter(Boolean);
+    for (const iw of input) {
+      for (const nw of nameWords) {
+        if (wordMatches(iw, nw)) {
+          return true;
         }
-        return false;
-    });
+      }
+    }
+    return false;
+  });
 }
 
+const handleInputChange = (which, value) => {
+  if (which === "start") setStartInput(value);
+  else setDestInput(value);
 
-  const handleInputChange = (which, value) => {
-    if (which === "start") setStartInput(value);
-    else setDestInput(value);
-    const list = buildSuggestions
-// New route modal handlers
+  const list = buildSuggestions(value);
+  if (which === "start") setStartSuggestions(list);
+  else setDestSuggestions(list);
+};
+
+const buildSuggestions = (value) => {
+  const q = normalize(value);
+  if (!q) return [];
+  return campusBuildings
+    .filter((b) => normalize(b.name).includes(q))
+    .slice(0, 6);
+};
+
+// NEW — handlers for the “Create Saved Route” modal
 const handleNewRouteInputChange = (which, value) => {
   if (which === "start") {
     setNewRouteStart(value);
@@ -720,56 +747,7 @@ const handleNewRouteSuggestionSelect = (which, suggestion) => {
   }
 };
 
-const openNewRouteCreator = () => {
-  if (!isAuthenticated) {
-    setStatusMessage("Sign in to create saved routes.");
-    return;
-  }
-  setNewRouteName("");
-  setNewRouteStart("");
-  setNewRouteDest("");
-  setNewRouteStartSuggestions([]);
-  setNewRouteDestSuggestions([]);
-  setShowNewRouteModal(true);
-};
-
-const saveNewNamedRoute = async () => {
-  if (!isAuthenticated || !userId) {
-    setStatusMessage("Sign in to save routes.");
-    setShowNewRouteModal(false);
-    return;
-  }
-  const name = newRouteName.trim();
-  const start = newRouteStart.trim();
-  const dest = newRouteDest.trim();
-  if (!name || !start || !dest) {
-    setStatusMessage("Enter name, start, and destination.");
-    return;
-  }
-  try {
-    await addDoc(collection(db, "users", userId, "routes"), {
-      name, start, dest, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
-    });
-    setStatusMessage("Route saved.");
-    setShowNewRouteModal(false);
-  } catch (e) {
-    console.error(e);
-    setStatusMessage("Failed to save route.");
-  }
-};
-(value);
-    if (which === "start") setStartSuggestions(list);
-    else setDestSuggestions(list);
-  };
-
-  const buildSuggestions = (value) => {
-    const q = normalize(value);
-    if (!q) return [];
-    return campusBuildings
-      .filter((b) => normalize(b.name).includes(q))
-      .slice(0, 6);
-  };
-  //open the New Saved Route modal
+//open the New Saved Route modal
 const openNewRouteCreator = () => {
   if (!isAuthenticated) {
     setStatusMessage("Sign in with your @umbc.edu email to create saved routes.");
@@ -782,29 +760,9 @@ const openNewRouteCreator = () => {
   setNewRouteDest("");
   setNewRouteStartSuggestions([]);
   setNewRouteDestSuggestions([]);
+  setNewRouteErrors({ name: "", start: "", dest: "" });
 
   setShowNewRouteModal(true);
-};
-
-  // NEW — handlers for the “Create Saved Route” modal
-const handleNewRouteInputChange = (which, value) => {
-  if (which === "start") {
-    setNewRouteStart(value);
-    setNewRouteStartSuggestions(buildSuggestions(value));
-  } else {
-    setNewRouteDest(value);
-    setNewRouteDestSuggestions(buildSuggestions(value));
-  }
-};
-
-const handleNewRouteSuggestionSelect = (which, suggestion) => {
-  if (which === "start") {
-    setNewRouteStart(suggestion.name);
-    setNewRouteStartSuggestions([]);
-  } else {
-    setNewRouteDest(suggestion.name);
-    setNewRouteDestSuggestions([]);
-  }
 };
 
 // save the route
@@ -819,10 +777,21 @@ const saveNewNamedRoute = async () => {
   const start = newRouteStart.trim();
   const dest = newRouteDest.trim();
 
-  if (!name || !start || !dest) {
-    setStatusMessage("Enter a name, start, and destination.");
+  // Field-level validation
+  const errors = {
+    name: name ? "" : "Please enter a route name.",
+    start: start ? "" : "Please choose a start building.",
+    dest: dest ? "" : "Please choose a destination building.",
+  };
+
+  if (errors.name || errors.start || errors.dest) {
+    setNewRouteErrors(errors);
+    setStatusMessage("Fill in the highlighted fields to save this route.");
     return;
   }
+
+  // No errors — clear any previous ones
+  setNewRouteErrors({ name: "", start: "", dest: "" });
 
   // optional: max 5
   if (savedRoutes.length >= 5) {
@@ -846,10 +815,7 @@ const saveNewNamedRoute = async () => {
     setStatusMessage("Unable to save route right now.");
   }
 };
-
-
-
-  const handleSuggestionSelect = (which, suggestion) => {
+const handleSuggestionSelect = (which, suggestion) => {
     if (which === "start") {
       setStartInput(suggestion.name);
       setStartSuggestions([]);
@@ -1506,15 +1472,60 @@ const saveNewNamedRoute = async () => {
         <h2 className="font-bold text-lg">New Saved Route</h2>
         <button onClick={()=>setShowNewRouteModal(false)} className="hover:opacity-80"><X className="h-5 w-5"/></button>
       </div>
+      {(newRouteErrors.name || newRouteErrors.start || newRouteErrors.dest) && (
+        <div className="mb-3 text-xs bg-red-500/15 border border-red-500/60 text-red-100 rounded-lg px-3 py-2">
+          Please fix the highlighted fields to continue.
+        </div>
+      )}
       <div className="space-y-4">
-        <div><label className="block text-xs mb-1">Route name</label>
-        <input type="text" value={newRouteName} onChange={(e)=>setNewRouteName(e.target.value)} className="w-full rounded-lg px-3 py-2 bg-white text-black"/></div>
-        <div className="relative"><label className="block text-xs mb-1">Start</label>
-        <input type="text" value={newRouteStart} onChange={(e)=>handleNewRouteInputChange("start", e.target.value)} className="w-full rounded-lg px-3 py-2 bg-white text-black"/>
-        {newRouteStartSuggestions.length>0 && (<Suggestions list={newRouteStartSuggestions} onSelect={(s)=>handleNewRouteSuggestionSelect("start", s)}/> )}</div>
-        <div className="relative"><label className="block text-xs mb-1">Destination</label>
-        <input type="text" value={newRouteDest} onChange={(e)=>handleNewRouteInputChange("dest", e.target.value)} className="w-full rounded-lg px-3 py-2 bg-white text-black"/>
-        {newRouteDestSuggestions.length>0 && (<Suggestions list={newRouteDestSuggestions} onSelect={(s)=>handleNewRouteSuggestionSelect("dest", s)}/> )}</div>
+        <div>
+          <label className="block text-xs mb-1">Route name</label>
+          <input
+            type="text"
+            value={newRouteName}
+            onChange={(e)=>setNewRouteName(e.target.value)}
+            className={`w-full rounded-lg px-3 py-2 bg-white text-black ${newRouteErrors.name ? "border border-red-500" : ""}`}
+          />
+          {newRouteErrors.name && (
+            <p className="mt-1 text-xs text-red-300">{newRouteErrors.name}</p>
+          )}
+        </div>
+        <div className="relative">
+          <label className="block text-xs mb-1">Start</label>
+          <input
+            type="text"
+            value={newRouteStart}
+            onChange={(e)=>handleNewRouteInputChange("start", e.target.value)}
+            className={`w-full rounded-lg px-3 py-2 bg-white text-black ${newRouteErrors.start ? "border border-red-500" : ""}`}
+          />
+          {newRouteStartSuggestions.length>0 && (
+            <Suggestions
+              list={newRouteStartSuggestions}
+              onSelect={(s)=>handleNewRouteSuggestionSelect("start", s)}
+            />
+          )}
+          {newRouteErrors.start && (
+            <p className="mt-1 text-xs text-red-300">{newRouteErrors.start}</p>
+          )}
+        </div>
+        <div className="relative">
+          <label className="block text-xs mb-1">Destination</label>
+          <input
+            type="text"
+            value={newRouteDest}
+            onChange={(e)=>handleNewRouteInputChange("dest", e.target.value)}
+            className={`w-full rounded-lg px-3 py-2 bg-white text-black ${newRouteErrors.dest ? "border border-red-500" : ""}`}
+          />
+          {newRouteDestSuggestions.length>0 && (
+            <Suggestions
+              list={newRouteDestSuggestions}
+              onSelect={(s)=>handleNewRouteSuggestionSelect("dest", s)}
+            />
+          )}
+          {newRouteErrors.dest && (
+            <p className="mt-1 text-xs text-red-300">{newRouteErrors.dest}</p>
+          )}
+        </div>
       </div>
       <div className="flex justify-end gap-2 mt-5">
         <button onClick={()=>setShowNewRouteModal(false)} className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15">Cancel</button>
