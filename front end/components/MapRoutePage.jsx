@@ -31,6 +31,13 @@ export default function MapRoutePage({ onBackToSplash, user }) {
   const [leftPct, setLeftPct] = useState(50);
   const [activeStep, setActiveStep] = useState(1);
   const [showSavedRoutes, setShowSavedRoutes] = useState(false);
+const [showNewRouteModal, setShowNewRouteModal] = useState(false);
+const [newRouteName, setNewRouteName] = useState("");
+const [newRouteStart, setNewRouteStart] = useState("");
+const [newRouteDest, setNewRouteDest] = useState("");
+const [newRouteStartSuggestions, setNewRouteStartSuggestions] = useState([]);
+const [newRouteDestSuggestions, setNewRouteDestSuggestions] = useState([]);
+
   const [confirmRoute, setConfirmRoute] = useState(null);
   const [startInput, setStartInput] = useState("");
   const [destInput, setDestInput] = useState("");
@@ -691,7 +698,66 @@ function suggestBuildingsFromInput(input, campusSuggestions) {
   const handleInputChange = (which, value) => {
     if (which === "start") setStartInput(value);
     else setDestInput(value);
-    const list = buildSuggestions(value);
+    const list = buildSuggestions
+// New route modal handlers
+const handleNewRouteInputChange = (which, value) => {
+  if (which === "start") {
+    setNewRouteStart(value);
+    setNewRouteStartSuggestions(buildSuggestions(value));
+  } else {
+    setNewRouteDest(value);
+    setNewRouteDestSuggestions(buildSuggestions(value));
+  }
+};
+
+const handleNewRouteSuggestionSelect = (which, suggestion) => {
+  if (which === "start") {
+    setNewRouteStart(suggestion.name);
+    setNewRouteStartSuggestions([]);
+  } else {
+    setNewRouteDest(suggestion.name);
+    setNewRouteDestSuggestions([]);
+  }
+};
+
+const openNewRouteCreator = () => {
+  if (!isAuthenticated) {
+    setStatusMessage("Sign in to create saved routes.");
+    return;
+  }
+  setNewRouteName("");
+  setNewRouteStart("");
+  setNewRouteDest("");
+  setNewRouteStartSuggestions([]);
+  setNewRouteDestSuggestions([]);
+  setShowNewRouteModal(true);
+};
+
+const saveNewNamedRoute = async () => {
+  if (!isAuthenticated || !userId) {
+    setStatusMessage("Sign in to save routes.");
+    setShowNewRouteModal(false);
+    return;
+  }
+  const name = newRouteName.trim();
+  const start = newRouteStart.trim();
+  const dest = newRouteDest.trim();
+  if (!name || !start || !dest) {
+    setStatusMessage("Enter name, start, and destination.");
+    return;
+  }
+  try {
+    await addDoc(collection(db, "users", userId, "routes"), {
+      name, start, dest, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+    });
+    setStatusMessage("Route saved.");
+    setShowNewRouteModal(false);
+  } catch (e) {
+    console.error(e);
+    setStatusMessage("Failed to save route.");
+  }
+};
+(value);
     if (which === "start") setStartSuggestions(list);
     else setDestSuggestions(list);
   };
@@ -703,6 +769,84 @@ function suggestBuildingsFromInput(input, campusSuggestions) {
       .filter((b) => normalize(b.name).includes(q))
       .slice(0, 6);
   };
+  //open the New Saved Route modal
+const openNewRouteCreator = () => {
+  if (!isAuthenticated) {
+    setStatusMessage("Sign in with your @umbc.edu email to create saved routes.");
+    return;
+  }
+
+  // Reset modal fields
+  setNewRouteName("");
+  setNewRouteStart("");
+  setNewRouteDest("");
+  setNewRouteStartSuggestions([]);
+  setNewRouteDestSuggestions([]);
+
+  setShowNewRouteModal(true);
+};
+
+  // NEW — handlers for the “Create Saved Route” modal
+const handleNewRouteInputChange = (which, value) => {
+  if (which === "start") {
+    setNewRouteStart(value);
+    setNewRouteStartSuggestions(buildSuggestions(value));
+  } else {
+    setNewRouteDest(value);
+    setNewRouteDestSuggestions(buildSuggestions(value));
+  }
+};
+
+const handleNewRouteSuggestionSelect = (which, suggestion) => {
+  if (which === "start") {
+    setNewRouteStart(suggestion.name);
+    setNewRouteStartSuggestions([]);
+  } else {
+    setNewRouteDest(suggestion.name);
+    setNewRouteDestSuggestions([]);
+  }
+};
+
+// save the route
+const saveNewNamedRoute = async () => {
+  if (!isAuthenticated || !userId) {
+    setStatusMessage("Sign in to save routes.");
+    setShowNewRouteModal(false);
+    return;
+  }
+
+  const name = newRouteName.trim();
+  const start = newRouteStart.trim();
+  const dest = newRouteDest.trim();
+
+  if (!name || !start || !dest) {
+    setStatusMessage("Enter a name, start, and destination.");
+    return;
+  }
+
+  // optional: max 5
+  if (savedRoutes.length >= 5) {
+    setStatusMessage("You can only store 5 saved routes. Delete one first.");
+    return;
+  }
+
+  try {
+    await addDoc(collection(db, "users", userId, "routes"), {
+      name,
+      start,
+      dest,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
+    setStatusMessage("Route saved!");
+    setShowNewRouteModal(false);
+  } catch (err) {
+    console.error("Failed to save route:", err);
+    setStatusMessage("Unable to save route right now.");
+  }
+};
+
 
 
   const handleSuggestionSelect = (which, suggestion) => {
@@ -1241,6 +1385,8 @@ function suggestBuildingsFromInput(input, campusSuggestions) {
             >
               <div className="flex justify-between items-center mb-4">
                 <h2 className="font-bold text-lg">Saved Routes</h2>
+{isAuthenticated && (
+<button type="button" onClick={(e)=>{e.stopPropagation(); openNewRouteCreator();}} className="mt-2 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-400 text-black hover:bg-amber-300 border border-amber-500">+ Add route</button>)}
                 <button onClick={() => { setShowSavedRoutes(false); setConfirmRoute(null); }} className="hover:opacity-80">
                   <X className="h-5 w-5" />
                 </button>
@@ -1346,7 +1492,39 @@ function suggestBuildingsFromInput(input, campusSuggestions) {
         )}
       </AnimatePresence>
 
-      {/* BOTTOM BAR MODALS */}
+      
+<AnimatePresence>
+{showNewRouteModal && (
+  <>
+    <motion.div className="fixed inset-0 bg-black/70 z-[115]"
+      initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+      onClick={()=>setShowNewRouteModal(false)} />
+    <motion.div className="fixed z-[125] rounded-2xl shadow-xl p-6 w-[92vw] max-w-[480px] border-2 text-white"
+      style={{background:"#0b0b0b", borderColor:"#FFCB05", top:"50%", left:"50%", transform:"translate(-50%, -50%)"}}
+      initial={{opacity:0, scale:0.9, y:8}} animate={{opacity:1, scale:1, y:0}} exit={{opacity:0, scale:0.9, y:8}}>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="font-bold text-lg">New Saved Route</h2>
+        <button onClick={()=>setShowNewRouteModal(false)} className="hover:opacity-80"><X className="h-5 w-5"/></button>
+      </div>
+      <div className="space-y-4">
+        <div><label className="block text-xs mb-1">Route name</label>
+        <input type="text" value={newRouteName} onChange={(e)=>setNewRouteName(e.target.value)} className="w-full rounded-lg px-3 py-2 bg-white text-black"/></div>
+        <div className="relative"><label className="block text-xs mb-1">Start</label>
+        <input type="text" value={newRouteStart} onChange={(e)=>handleNewRouteInputChange("start", e.target.value)} className="w-full rounded-lg px-3 py-2 bg-white text-black"/>
+        {newRouteStartSuggestions.length>0 && (<Suggestions list={newRouteStartSuggestions} onSelect={(s)=>handleNewRouteSuggestionSelect("start", s)}/> )}</div>
+        <div className="relative"><label className="block text-xs mb-1">Destination</label>
+        <input type="text" value={newRouteDest} onChange={(e)=>handleNewRouteInputChange("dest", e.target.value)} className="w-full rounded-lg px-3 py-2 bg-white text-black"/>
+        {newRouteDestSuggestions.length>0 && (<Suggestions list={newRouteDestSuggestions} onSelect={(s)=>handleNewRouteSuggestionSelect("dest", s)}/> )}</div>
+      </div>
+      <div className="flex justify-end gap-2 mt-5">
+        <button onClick={()=>setShowNewRouteModal(false)} className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15">Cancel</button>
+        <button onClick={saveNewNamedRoute} className="px-3 py-2 rounded-lg font-semibold" style={{background:"#FFCB05", color:"#111"}}>Save route</button>
+      </div>
+    </motion.div>
+  </>
+)}
+</AnimatePresence>
+{/* BOTTOM BAR MODALS */}
       <AnimatePresence>
         {open === "how" && (
           <Modal onClose={() => setOpen(null)} title="How it works">
@@ -1640,13 +1818,13 @@ function formatMeters(m) {
 
 function Suggestions({ list, onSelect }) {
   return (
-    <ul className="absolute left-0 right-0 top-full mt-1 rounded-lg border border-gray-200 bg-white shadow z-50 max-h-64 overflow-auto">
+    <ul className="absolute left-0 right-0 top-full mt-1 rounded-lg border border-gray-200 bg-white text-black shadow z-50 max-h-64 overflow-auto">
       {list.map((s) => (
         <li key={s.name}>
           <button
             type="button"
             onClick={() => onSelect(s)}
-            className="w-full text-left px-3 py-2 hover:bg-gray-100"
+            className="w-full text-left px-3 py-2 hover:bg-gray-100 text-black"
           >
             {s.name}
           </button>
