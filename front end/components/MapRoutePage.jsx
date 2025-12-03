@@ -1246,7 +1246,19 @@ function suggestBuildingsFromInput(input, campusSuggestions) {
                 </button>
               </div>
               <div className="space-y-3 pr-1">
-                {savedRoutes.length === 0 ? (
+                {!isAuthenticated ? (
+              <div className="text-sm bg-amber-500/20 border border-amber-400/40 rounded-lg p-3 text-amber-200">
+              <p className="font-bold mb-1 text-amber-300">
+                🚫 Retriever Account Required
+              </p>
+              <p className="text-xs leading-relaxed">
+                Guests can view the map, but saved routes are a <strong>UMBC-only</strong> feature.
+                Sign in with your <span className="font-semibold">@umbc.edu</span> email 
+                to save routes and access them later.
+              </p>
+            </div>
+                ) : savedRoutes.length === 0 ? (
+
                   <div className="text-sm opacity-80 bg-white/5 border border-white/10 rounded-lg p-3">
                     Save a route after drawing it to see it here.
                   </div>
