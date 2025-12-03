@@ -52,24 +52,7 @@ export default function SplashScreen({ onLogin, onGuest, authError, isAuthentica
       <header className="relative z-10 w-full flex items-center justify-between px-8 py-4">
         <h1 className="sr-only">Let&apos;s Leave</h1>
 
-        {/* Mobile-only auth buttons */}
-        <nav className="ml-auto flex items-center gap-3 lg:hidden">
-          <button
-            onClick={onLogin}
-            disabled={isAuthenticating}
-            className="px-4 py-2 rounded-xl font-semibold border focus:outline-none focus-visible:ring-4 disabled:opacity-60 disabled:cursor-not-allowed"
-            style={{ backgroundColor: brand.black, borderColor: '#2b2b2b', color: brand.gold }}
-          >
-            {isAuthenticating ? 'Signing in...' : 'Log in'}
-          </button>
-          <button
-            onClick={onGuest}
-            className="px-4 py-2 rounded-xl font-semibold border focus:outline-none focus-visible:ring-4"
-            style={{ backgroundColor: brand.gold, borderColor: '#ffffff80', color: brand.black }}
-          >
-            Continue as guest
-          </button>
-        </nav>
+        
       </header>
 
       {/* Hero */}

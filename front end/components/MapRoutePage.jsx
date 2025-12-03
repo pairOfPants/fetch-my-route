@@ -21,7 +21,6 @@ import {
   Navigation,
   MousePointerClick,
   Trash2,
-  Pencil,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
@@ -30,18 +29,9 @@ import { getRoute, isOSRMAvailable, generateBasicInstructions } from "@/lib/osrm
 
 export default function MapRoutePage({ onBackToSplash, user }) {
   const [leftPct, setLeftPct] = useState(50);
+  const [isMobile, setIsMobile] = useState(false);
   const [activeStep, setActiveStep] = useState(1);
   const [showSavedRoutes, setShowSavedRoutes] = useState(false);
-const [showNewRouteModal, setShowNewRouteModal] = useState(false);
-const [newRouteName, setNewRouteName] = useState("");
-const [newRouteStart, setNewRouteStart] = useState("");
-const [newRouteDest, setNewRouteDest] = useState("");
-const [newRouteStartSuggestions, setNewRouteStartSuggestions] = useState([]);
-const [newRouteDestSuggestions, setNewRouteDestSuggestions] = useState([]);
-const [newRouteErrors, setNewRouteErrors] = useState({ name: "", start: "", dest: "" });
-const [editingRoute, setEditingRoute] = useState(null);
-
-
   const [confirmRoute, setConfirmRoute] = useState(null);
   const [startInput, setStartInput] = useState("");
   const [destInput, setDestInput] = useState("");
@@ -105,6 +95,18 @@ const [editingRoute, setEditingRoute] = useState(null);
     );
   }, [highContrast, textScale]);
 
+
+  useEffect(() => {
+    const updateLayout = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      setLeftPct(mobile ? 80 : 50);
+    };
+    updateLayout();
+    window.addEventListener("resize", updateLayout);
+    return () => window.removeEventListener("resize", updateLayout);
+  }, []);
+
   useEffect(() => {
     if (!isAuthenticated) {
       try {
@@ -156,18 +158,28 @@ const [editingRoute, setEditingRoute] = useState(null);
   const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
   const fullyCollapseLeft = () => setLeftPct(0);
   const fullyCollapseRight = () => setLeftPct(100);
-  const resetSplit = () => setLeftPct(50);
+  const resetSplit = () => setLeftPct(isMobile ? 80 : 50);
 
   const startDrag = (e) => {
     e.preventDefault();
+    if (!containerRef.current) return;
+
     const rect = containerRef.current.getBoundingClientRect();
-    const startX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
-    const startLeft = leftPct;
+    const getPoint = (evt) => {
+      const touch = evt.touches?.[0];
+      if (touch) return { x: touch.clientX, y: touch.clientY };
+      return { x: evt.clientX ?? 0, y: evt.clientY ?? 0 };
+    };
+
+    const startPoint = getPoint(e);
+    const startPct = leftPct;
 
     const onMove = (ev) => {
-      const clientX = ev.clientX ?? ev.touches?.[0]?.clientX ?? 0;
-      const delta = ((clientX - startX) / rect.width) * 100;
-      setLeftPct((_) => clamp(startLeft + delta, 0, 100));
+      const p = getPoint(ev);
+      const delta = isMobile
+        ? ((p.y - startPoint.y) / rect.height) * 100
+        : ((p.x - startPoint.x) / rect.width) * 100;
+      setLeftPct(() => clamp(startPct + delta, 0, 100));
     };
 
     const stop = () => {
@@ -274,10 +286,15 @@ const [editingRoute, setEditingRoute] = useState(null);
   }, []);
 
   const pillPosStyle = useMemo(() => {
-    if (leftPct <= 6) return { left: 16, transform: "translateY(-50%)" };
-    if (leftPct >= 94) return { right: 16, transform: "translateY(-50%)" };
-    return { left: "50%", transform: "translate(-50%, -50%)" };
-  }, [leftPct]);
+    if (isMobile) {
+      if (leftPct <= 6) return { top: 16, left: "50%", transform: "translateX(-50%)" };
+      if (leftPct >= 94) return { bottom: 16, left: "50%", transform: "translateX(-50%)" };
+      return { top: "50%", left: "50%", transform: "translate(-50%, -50%)" };
+    }
+    if (leftPct <= 6) return { left: 16, top: "50%", transform: "translateY(-50%)" };
+    if (leftPct >= 94) return { right: 16, top: "50%", transform: "translateY(-50%)" };
+    return { left: "50%", top: "50%", transform: "translate(-50%, -50%)" };
+  }, [leftPct, isMobile]);
 
   // keep Leaflet tiles sized when the split pane changes
   useEffect(() => {
@@ -631,31 +648,20 @@ const [editingRoute, setEditingRoute] = useState(null);
     setShowSavedRoutes(false);
   };
 
-  const normalize = (s) => {
-  if (s == null) return "";
-  if (typeof s !== "string") {
-    try {
-      s = String(s);
-    } catch {
-      return "";
-    }
-  }
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-};
+  const normalize = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
-/**
+ /**
  * Validates and splits an input string into words
  * @param m The input string to validate and split (e.g. "Performing Arts & Humanities 305")
  * @returns Array of words from the input string
  */
 function validateInput(m) {
-  // Remove any leading/trailing whitespace
-  const trimmed = m.trim();
-  // Split on whitespace and filter out any empty strings
-  const words = trimmed.split(/\s+/).filter((word) => word.length > 0);
-  return words;
+    // Remove any leading/trailing whitespace
+    const trimmed = m.trim();
+    // Split on whitespace and filter out any empty strings
+    const words = trimmed.split(/\s+/).filter(word => word.length > 0);
+    return words;
 }
-
 /**
  * Suggests buildings based on input words
  * @param input Array of words to match against building names
@@ -663,192 +669,71 @@ function validateInput(m) {
  * @returns Filtered array of building names that match all input words
  */
 function suggestBuildingsFromInput(input, campusSuggestions) {
-  // Helper: compute Levenshtein distance between two strings
-  function levenshtein(a, b) {
-    const m = a.length;
-    const n = b.length;
-    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-    for (let i = 0; i <= m; i++) dp[i][0] = i;
-    for (let j = 0; j <= n; j++) dp[0][j] = j;
-    for (let i = 1; i <= m; i++) {
-      for (let j = 1; j <= n; j++) {
-        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-        dp[i][j] = Math.min(
-          dp[i - 1][j] + 1,
-          dp[i][j - 1] + 1,
-          dp[i - 1][j - 1] + cost
-        );
-      }
-    }
-    return dp[m][n];
-  }
-
-  // Helper: decide if an input word matches a target word roughly
-  function wordMatches(inputWord, targetWord) {
-    const a = inputWord.toLowerCase();
-    const b = targetWord.toLowerCase();
-    if (b.indexOf(a) !== -1) return true; // substring
-    if (a.indexOf(b) !== -1) return true; // inverse substring
-    // Accept small typos: allow edit distance relative to length
-    const maxDist = Math.max(1, Math.floor(Math.min(a.length, b.length) / 4));
-    return levenshtein(a, b) <= maxDist;
-  }
-
-  // We'll include a building when ANY input word matches ANY word in the building's display name.
-  // This is intentionally permissive to surface candidates when the user makes small typos.
-  return campusSuggestions.filter((b) => {
-    const name = b.display_name || "";
-    // Split the building name into words (also split on punctuation)
-    const nameWords = name.split(/[^\w]+/).filter(Boolean);
-    for (const iw of input) {
-      for (const nw of nameWords) {
-        if (wordMatches(iw, nw)) {
-          return true;
+    // Helper: compute Levenshtein distance between two strings
+    function levenshtein(a, b) {
+        const m = a.length;
+        const n = b.length;
+        const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+        for (let i = 0; i <= m; i++)
+            dp[i][0] = i;
+        for (let j = 0; j <= n; j++)
+            dp[0][j] = j;
+        for (let i = 1; i <= m; i++) {
+            for (let j = 1; j <= n; j++) {
+                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+            }
         }
-      }
+        return dp[m][n];
     }
-    return false;
-  });
+    // Helper: decide if an input word matches a target word roughly
+    function wordMatches(inputWord, targetWord) {
+        const a = inputWord.toLowerCase();
+        const b = targetWord.toLowerCase();
+        if (b.indexOf(a) !== -1)
+            return true; // substring
+        if (a.indexOf(b) !== -1)
+            return true; // inverse substring
+        // Accept small typos: allow edit distance relative to length
+        const maxDist = Math.max(1, Math.floor(Math.min(a.length, b.length) / 4));
+        return levenshtein(a, b) <= maxDist;
+    }
+    // We'll include a building when ANY input word matches ANY word in the building's display name.
+    // This is intentionally permissive to surface candidates when the user makes small typos.
+    return campusSuggestions.filter(b => {
+        const name = b.display_name || '';
+        // Split the building name into words (also split on punctuation)
+        const nameWords = name.split(/[^\w]+/).filter(Boolean);
+        for (const iw of input) {
+            for (const nw of nameWords) {
+                if (wordMatches(iw, nw)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    });
 }
 
-const handleInputChange = (which, value) => {
-  if (which === "start") setStartInput(value);
-  else setDestInput(value);
 
-  const list = buildSuggestions(value);
-  if (which === "start") setStartSuggestions(list);
-  else setDestSuggestions(list);
-};
-
-const buildSuggestions = (value) => {
-  const q = normalize(value);
-  if (!q) return [];
-  return campusBuildings
-    .filter((b) => normalize(b.name).includes(q))
-    .slice(0, 6);
-};
-
-// NEW — handlers for the “Create Saved Route” modal
-const handleNewRouteInputChange = (which, value) => {
-  if (which === "start") {
-    setNewRouteStart(value);
-    setNewRouteStartSuggestions(buildSuggestions(value));
-  } else {
-    setNewRouteDest(value);
-    setNewRouteDestSuggestions(buildSuggestions(value));
-  }
-};
-
-const handleNewRouteSuggestionSelect = (which, suggestion) => {
-  if (which === "start") {
-    setNewRouteStart(suggestion.name);
-    setNewRouteStartSuggestions([]);
-  } else {
-    setNewRouteDest(suggestion.name);
-    setNewRouteDestSuggestions([]);
-  }
-};
-
-//open the New Saved Route modal
-const openNewRouteCreator = () => {
-  if (!isAuthenticated) {
-    setStatusMessage("Sign in with your @umbc.edu email to create saved routes.");
-    return;
-  }
-
-  // Reset modal fields
-  setNewRouteName("");
-  setNewRouteStart("");
-  setNewRouteDest("");
-  setNewRouteStartSuggestions([]);
-  setNewRouteDestSuggestions([]);
-  setNewRouteErrors({ name: "", start: "", dest: "" });
-
-  setShowNewRouteModal(true);
-};
-
-const openEditRoute = (route) => {
-  if (!isAuthenticated) {
-    setStatusMessage("Sign in to edit saved routes.");
-    return;
-  }
-  if (!route) return;
-
-  setEditingRoute(route);
-  setNewRouteName(route.name || "");
-  setNewRouteStart(route.start || "");
-  setNewRouteDest(route.dest || "");
-  setNewRouteStartSuggestions([]);
-  setNewRouteDestSuggestions([]);
-  setNewRouteErrors({ name: "", start: "", dest: "" });
-  setShowNewRouteModal(true);
-};
-
-
-// save the route
-const saveNewNamedRoute = async () => {
-  if (!isAuthenticated || !userId) {
-    setStatusMessage("Sign in to save routes.");
-    setShowNewRouteModal(false);
-    setEditingRoute(null);
-    return;
-  }
-
-  const name = newRouteName.trim();
-  const start = newRouteStart.trim();
-  const dest = newRouteDest.trim();
-
-  // Field-level validation
-  const errors = {
-    name: name ? "" : "Please enter a route name.",
-    start: start ? "" : "Please choose a start building.",
-    dest: dest ? "" : "Please choose a destination building.",
+  const handleInputChange = (which, value) => {
+    if (which === "start") setStartInput(value);
+    else setDestInput(value);
+    const list = buildSuggestions(value);
+    if (which === "start") setStartSuggestions(list);
+    else setDestSuggestions(list);
   };
 
-  if (errors.name || errors.start || errors.dest) {
-    setNewRouteErrors(errors);
-    setStatusMessage("Fill in the highlighted fields to save this route.");
-    return;
-  }
+  const buildSuggestions = (value) => {
+    const q = normalize(value);
+    if (!q) return [];
+    return campusBuildings
+      .filter((b) => normalize(b.name).includes(q))
+      .slice(0, 6);
+  };
 
-  // No errors — clear any previous ones
-  setNewRouteErrors({ name: "", start: "", dest: "" });
 
-  try {
-    if (editingRoute && editingRoute.id) {
-      // Update existing route
-      await updateDoc(doc(db, "users", userId, "routes", editingRoute.id), {
-        name,
-        start,
-        dest,
-        updatedAt: serverTimestamp(),
-      });
-      setStatusMessage("Saved route updated.");
-    } else {
-      // optional: max 5
-      if (savedRoutes.length >= 5) {
-        setStatusMessage("You can only store 5 saved routes. Delete one first.");
-        return;
-      }
-      // Create new route
-      await addDoc(collection(db, "users", userId, "routes"), {
-        name,
-        start,
-        dest,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      setStatusMessage("Route saved!");
-    }
-
-    setShowNewRouteModal(false);
-    setEditingRoute(null);
-  } catch (err) {
-    console.error("Failed to save route:", err);
-    setStatusMessage("Unable to save route right now.");
-  }
-};
-const handleSuggestionSelect = (which, suggestion) => {
+  const handleSuggestionSelect = (which, suggestion) => {
     if (which === "start") {
       setStartInput(suggestion.name);
       setStartSuggestions([]);
@@ -1039,8 +924,12 @@ const handleSuggestionSelect = (which, suggestion) => {
       }}
     >
       {/* TOP BAR */}
-      <header className="flex items-center justify-between px-6 py-3 gap-4 flex-wrap" style={{ background: brand.black }}>
-        <div className="flex gap-3 w-full max-w-[760px]">
+      <header
+        className="w-full px-3 py-3 md:px-6 md:py-3 gap-3 md:gap-4 flex flex-wrap md:flex-nowrap items-stretch md:items-center"
+        style={{ background: brand.black }}
+      >
+        {/* Search inputs */}
+        <div className="flex w-full md:max-w-[760px] gap-2 md:gap-3 flex-col md:flex-row">
           <div className="relative flex-1">
             <input
               type="text"
@@ -1061,9 +950,13 @@ const handleSuggestionSelect = (which, suggestion) => {
               {isLocating ? "Locating..." : "Locate me"}
             </button>
             {startSuggestions.length > 0 && (
-              <Suggestions list={startSuggestions} onSelect={(s) => handleSuggestionSelect("start", s)} />
+              <Suggestions
+                list={startSuggestions}
+                onSelect={(s) => handleSuggestionSelect("start", s)}
+              />
             )}
           </div>
+
           <div className="relative flex-1">
             <input
               type="text"
@@ -1075,12 +968,16 @@ const handleSuggestionSelect = (which, suggestion) => {
               aria-label="Destination"
             />
             {destSuggestions.length > 0 && (
-              <Suggestions list={destSuggestions} onSelect={(s) => handleSuggestionSelect("dest", s)} />
+              <Suggestions
+                list={destSuggestions}
+                onSelect={(s) => handleSuggestionSelect("dest", s)}
+              />
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2 ml-auto">
+        {/* Action buttons */}
+        <div className="flex w-full md:w-auto gap-2 flex-wrap justify-between md:justify-end items-center mt-1 md:mt-0 md:ml-auto">
           <button
             onClick={routeFromInputs}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl font-semibold border bg-white text-black"
@@ -1090,45 +987,74 @@ const handleSuggestionSelect = (which, suggestion) => {
             <Navigation className="h-4 w-4" />
             Route
           </button>
+
           <button
             onClick={clearAll}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-xl font-semibold border text-white"
             style={{ background: "#111827", borderColor: "#2b2b2b" }}
           >
-            <RotateCcw className="h-4 w-4" /> Clear
+            <RotateCcw className="h-4 w-4" />
+            Clear
           </button>
+
           <button
             onClick={toggleMapClick}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-xl font-semibold border"
-            style={{ background: mapClickEnabled ? brand.gold : "#0f172a", color: mapClickEnabled ? "#111" : brand.gold, borderColor: "#2b2b2b" }}
+            style={{
+              background: mapClickEnabled ? brand.gold : "#0f172a",
+              color: mapClickEnabled ? "#111" : brand.gold,
+              borderColor: "#2b2b2b",
+            }}
             disabled={!mapReady}
           >
             <MousePointerClick className="h-4 w-4" />
-            Map Click: {mapClickEnabled ? "On" : "Off"}
+            <span className="hidden sm:inline">
+              Map Click: {mapClickEnabled ? "On" : "Off"}
+            </span>
+            <span className="sm:hidden">
+              {mapClickEnabled ? "Click On" : "Click Off"}
+            </span>
           </button>
+
           <button
             onClick={openSaveModal}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-xl font-semibold border"
-            style={{ background: canSaveCurrentRoute ? brand.gold : "#0f172a", color: canSaveCurrentRoute ? "#111" : "#9ca3af", borderColor: "#2b2b2b" }}
+            style={{
+              background: canSaveCurrentRoute ? brand.gold : "#0f172a",
+              color: canSaveCurrentRoute ? "#111" : "#9ca3af",
+              borderColor: "#2b2b2b",
+            }}
             disabled={!canSaveCurrentRoute}
-            title={canSaveCurrentRoute ? "Save this route for later use" : "Enter start and destination, then draw a route"}
+            title={
+              canSaveCurrentRoute
+                ? "Save this route for later use"
+                : "Enter start and destination, then draw a route"
+            }
           >
             <BookmarkPlus className="h-4 w-4" />
-            Save route
+            <span className="hidden md:inline">Save route</span>
+            <span className="md:hidden">Save</span>
           </button>
+
           {userDisplayName && (
-            <div className="text-right mr-1 leading-tight text-white">
-              <p className="text-xs uppercase tracking-wide text-white/70">Signed in</p>
+            <div className="hidden md:block text-right mr-1 leading-tight text-white">
+              <p className="text-xs uppercase tracking-wide text-white/70">
+                Signed in
+              </p>
               <p className="font-semibold">{userDisplayName}</p>
             </div>
           )}
+
           <button
             onClick={() => setShowSavedRoutes(true)}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl font-semibold border"
             style={{ background: brand.black, color: brand.gold, borderColor: "#2b2b2b" }}
           >
-            <Bookmark className="h-4 w-4" /> Saved routes
+            <Bookmark className="h-4 w-4" />
+            <span className="hidden md:inline">Saved routes</span>
+            <span className="md:hidden">Saved</span>
           </button>
+
           <button
             onClick={onBackToSplash}
             aria-label="Logout"
@@ -1145,7 +1071,7 @@ const handleSuggestionSelect = (which, suggestion) => {
       <div
         ref={containerRef}
         className="relative flex-1 grid overflow-hidden"
-        style={{ gridTemplateColumns: `${leftPct}% 12px ${100 - leftPct}%` }}
+        style={isMobile ? { gridTemplateRows: `${leftPct}% 12px ${100 - leftPct}%` } : { gridTemplateColumns: `${leftPct}% 12px ${100 - leftPct}%` }}
       >
         {/* LEFT — map */}
         <div className="relative overflow-hidden z-0">
@@ -1168,14 +1094,18 @@ const handleSuggestionSelect = (which, suggestion) => {
 
         {/* DIVIDER */}
         <div
-          className="relative cursor-col-resize select-none z-[60]"
+          className={`relative select-none z-[60] ${isMobile ? "cursor-row-resize" : "cursor-col-resize"}`}
           onMouseDown={startDrag}
           onTouchStart={startDrag}
           onDoubleClick={resetSplit}
           style={{ background: "rgba(0,0,0,0.25)" }}
         >
-          <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[2px] bg-white/60 rounded" />
-          <div className="group absolute top-1/2 -translate-y-1/2" style={pillPosStyle}>
+          {isMobile ? (
+            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] bg-white/60 rounded" />
+          ) : (
+            <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[2px] bg-white/60 rounded" />
+          )}
+          <div className="group absolute" style={pillPosStyle}>
             <div
               className="
                 flex items-center gap-2 border shadow-xl rounded-full overflow-hidden
@@ -1190,8 +1120,8 @@ const handleSuggestionSelect = (which, suggestion) => {
               <div className="flex items-center gap-1 pr-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                 <button
                   onClick={(e) => { e.stopPropagation(); fullyCollapseLeft(); }}
-                  aria-label="Collapse map"
-                  title="Collapse map"
+                  aria-label={isMobile ? "Collapse map area" : "Collapse map"}
+                  title={isMobile ? "Collapse map area" : "Collapse map"}
                   className="p-2 rounded-full hover:bg-black/10"
                 >
                   <ChevronLeft className="h-4 w-4 text-black" />
@@ -1206,8 +1136,8 @@ const handleSuggestionSelect = (which, suggestion) => {
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); fullyCollapseRight(); }}
-                  aria-label="Collapse directions"
-                  title="Collapse directions"
+                  aria-label={isMobile ? "Collapse details panel" : "Collapse directions"}
+                  title={isMobile ? "Collapse details panel" : "Collapse directions"}
                   className="p-2 rounded-full hover:bg-black/10"
                 >
                   <ChevronRight className="h-4 w-4 text-black" />
@@ -1384,80 +1314,43 @@ const handleSuggestionSelect = (which, suggestion) => {
             >
               <div className="flex justify-between items-center mb-4">
                 <h2 className="font-bold text-lg">Saved Routes</h2>
-{isAuthenticated && (
-<button type="button" onClick={(e)=>{e.stopPropagation(); openNewRouteCreator();}} className="mt-2 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-400 text-black hover:bg-amber-300 border border-amber-500">+ Add route</button>)}
                 <button onClick={() => { setShowSavedRoutes(false); setConfirmRoute(null); }} className="hover:opacity-80">
                   <X className="h-5 w-5" />
                 </button>
               </div>
               <div className="space-y-3 pr-1">
-                {!isAuthenticated ? (
-              <div className="text-sm bg-amber-500/20 border border-amber-400/40 rounded-lg p-3 text-amber-200">
-              <p className="font-bold mb-1 text-amber-300">
-                🚫 Retriever Account Required
-              </p>
-              <p className="text-xs leading-relaxed">
-                Guests can view the map, but saved routes are a <strong>UMBC-only</strong> feature.
-                Sign in with your <span className="font-semibold">@umbc.edu</span> email 
-                to save routes and access them later.
-              </p>
-            </div>
-                ) : savedRoutes.length === 0 ? (
-
+                {savedRoutes.length === 0 ? (
                   <div className="text-sm opacity-80 bg-white/5 border border-white/10 rounded-lg p-3">
                     Save a route after drawing it to see it here.
                   </div>
                 ) : (
-                    <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
-                      {savedRoutes.map((r) => (
-                        <div
-                          key={r.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => setConfirmRoute(r)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              setConfirmRoute(r);
-                            }
-                          }}
-                          className="w-full text-left p-3 rounded-lg bg-white/10 border border-white/20 hover:bg-white/20 transition flex items-start justify-between gap-3 cursor-pointer"
-                          style={{ wordBreak: "break-word", whiteSpace: "normal" }}
-                          title={`Start: ${r.start} | Destination: ${r.dest}`}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="font-semibold break-words">{r.name}</div>
-                            <div className="text-xs opacity-70 mt-1 break-words">
-                              Start: {r.start} | Destination: {r.dest}
-                            </div>
-                          </div>
-                          <div className="flex flex-col gap-2 shrink-0">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openEditRoute(r);
-                              }}
-                              className="p-2 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
-                              title="Edit saved route"
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteRoute(r);
-                              }}
-                              className="p-2 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
-                              title="Delete saved route"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
+                    savedRoutes.map((r) => (
+                      <div
+                        key={r.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setConfirmRoute(r)}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setConfirmRoute(r); } }}
+                        className="w-full text-left p-3 rounded-lg bg-white/10 border border-white/20 hover:bg-white/20 transition flex items-start justify-between gap-3 cursor-pointer"
+                        style={{ wordBreak: "break-word", whiteSpace: "normal" }}
+                        title={`Start: ${r.start} | Destination: ${r.dest}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold break-words">{r.name}</div>
+                          <div className="text-xs opacity-70 mt-1 break-words">
+                            Start: {r.start} | Destination: {r.dest}
                           </div>
                         </div>
-                      ))}
-                    </div>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); deleteRoute(r); }}
+                          className="p-2 rounded-md bg-white/10 hover:bg-white/20 border border-white/20 shrink-0"
+                          title="Delete saved route"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))
                   )}
                 </div>
               </motion.div>
@@ -1514,84 +1407,7 @@ const handleSuggestionSelect = (which, suggestion) => {
         )}
       </AnimatePresence>
 
-      
-<AnimatePresence>
-{showNewRouteModal && (
-  <>
-    <motion.div className="fixed inset-0 bg-black/70 z-[115]"
-      initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
-      onClick={()=>{setShowNewRouteModal(false); setEditingRoute(null);}} />
-    <motion.div className="fixed z-[125] rounded-2xl shadow-xl p-6 w-[92vw] max-w-[480px] border-2 text-white"
-      style={{background:"#0b0b0b", borderColor:"#FFCB05", top:"50%", left:"50%", transform:"translate(-50%, -50%)"}}
-      initial={{opacity:0, scale:0.9, y:8}} animate={{opacity:1, scale:1, y:0}} exit={{opacity:0, scale:0.9, y:8}}>
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="font-bold text-lg">{editingRoute ? "Edit Saved Route" : "New Saved Route"}</h2>
-        <button onClick={()=>{setShowNewRouteModal(false); setEditingRoute(null);}} className="hover:opacity-80"><X className="h-5 w-5"/></button>
-      </div>
-      {(newRouteErrors.name || newRouteErrors.start || newRouteErrors.dest) && (
-        <div className="mb-3 text-xs bg-red-500/15 border border-red-500/60 text-red-100 rounded-lg px-3 py-2">
-          Please fix the highlighted fields to continue.
-        </div>
-      )}
-      <div className="space-y-4">
-        <div>
-          <label className="block text-xs mb-1">Route name</label>
-          <input
-            type="text"
-            value={newRouteName}
-            onChange={(e)=>setNewRouteName(e.target.value)}
-            className={`w-full rounded-lg px-3 py-2 bg-white text-black ${newRouteErrors.name ? "border border-red-500" : ""}`}
-          />
-          {newRouteErrors.name && (
-            <p className="mt-1 text-xs text-red-300">{newRouteErrors.name}</p>
-          )}
-        </div>
-        <div className="relative">
-          <label className="block text-xs mb-1">Start</label>
-          <input
-            type="text"
-            value={newRouteStart}
-            onChange={(e)=>handleNewRouteInputChange("start", e.target.value)}
-            className={`w-full rounded-lg px-3 py-2 bg-white text-black ${newRouteErrors.start ? "border border-red-500" : ""}`}
-          />
-          {newRouteStartSuggestions.length>0 && (
-            <Suggestions
-              list={newRouteStartSuggestions}
-              onSelect={(s)=>handleNewRouteSuggestionSelect("start", s)}
-            />
-          )}
-          {newRouteErrors.start && (
-            <p className="mt-1 text-xs text-red-300">{newRouteErrors.start}</p>
-          )}
-        </div>
-        <div className="relative">
-          <label className="block text-xs mb-1">Destination</label>
-          <input
-            type="text"
-            value={newRouteDest}
-            onChange={(e)=>handleNewRouteInputChange("dest", e.target.value)}
-            className={`w-full rounded-lg px-3 py-2 bg-white text-black ${newRouteErrors.dest ? "border border-red-500" : ""}`}
-          />
-          {newRouteDestSuggestions.length>0 && (
-            <Suggestions
-              list={newRouteDestSuggestions}
-              onSelect={(s)=>handleNewRouteSuggestionSelect("dest", s)}
-            />
-          )}
-          {newRouteErrors.dest && (
-            <p className="mt-1 text-xs text-red-300">{newRouteErrors.dest}</p>
-          )}
-        </div>
-      </div>
-      <div className="flex justify-end gap-2 mt-5">
-        <button onClick={()=>{setShowNewRouteModal(false); setEditingRoute(null);}} className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15">Cancel</button>
-        <button onClick={saveNewNamedRoute} className="px-3 py-2 rounded-lg font-semibold" style={{background:"#FFCB05", color:"#111"}}>{editingRoute ? "Save changes" : "Save route"}</button>
-      </div>
-    </motion.div>
-  </>
-)}
-</AnimatePresence>
-{/* BOTTOM BAR MODALS */}
+      {/* BOTTOM BAR MODALS */}
       <AnimatePresence>
         {open === "how" && (
           <Modal onClose={() => setOpen(null)} title="How it works">
@@ -1885,13 +1701,13 @@ function formatMeters(m) {
 
 function Suggestions({ list, onSelect }) {
   return (
-    <ul className="absolute left-0 right-0 top-full mt-1 rounded-lg border border-gray-200 bg-white text-black shadow z-50 max-h-64 overflow-auto">
+    <ul className="absolute left-0 right-0 top-full mt-1 rounded-lg border border-gray-200 bg-white shadow z-50 max-h-64 overflow-auto">
       {list.map((s) => (
         <li key={s.name}>
           <button
             type="button"
             onClick={() => onSelect(s)}
-            className="w-full text-left px-3 py-2 hover:bg-gray-100 text-black"
+            className="w-full text-left px-3 py-2 hover:bg-gray-100"
           >
             {s.name}
           </button>
