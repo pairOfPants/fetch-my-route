@@ -313,14 +313,22 @@ export default function MapRoutePage({ onBackToSplash, user }) {
     const L = leafletRef.current;
     if (!mapRef.current || !L) return;
 
-    const icon = L.divIcon({
-      className: "custom-marker",
-      html: `<div style="background:${which === "start" ? "#22c55e" : "#ef4444"};width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 0 2px rgba(0,0,0,.6);"></div>`,
-      iconSize: [14, 14],
-      iconAnchor: [7, 7],
+    // Use image icons instead of colored dots
+    const startIcon = L.icon({
+      iconUrl: "/assets/stick-figure.png",
+      iconSize: [56, 56],
+      iconAnchor: [28, 28],
+      tooltipAnchor: [0, -14],
     });
-    const marker = L.marker([lat, lng], { icon });
-    marker.addTo(mapRef.current);
+    const endIcon = L.icon({
+      iconUrl: "/assets/tennis-ball.png",
+      iconSize: [36, 36],
+      iconAnchor: [18, 18],
+      tooltipAnchor: [0, -14],
+    });
+
+    const icon = which === "start" ? startIcon : endIcon;
+    const marker = L.marker([lat, lng], { icon }).addTo(mapRef.current);
 
     if (which === "start") {
       if (startMarkerRef.current) mapRef.current.removeLayer(startMarkerRef.current);
@@ -458,7 +466,10 @@ export default function MapRoutePage({ onBackToSplash, user }) {
 
     // Place pawprints along the route
     latlngs.forEach((latlng, index) => {
-      if (index % 2 === 0) {
+      // Skip first (start icon) and last (end icon) vertices
+      if (index === 0 || index === latlngs.length - 1) return;
+      // Keep every other point for spacing
+      if (index % 4 === 0) {
         const marker = L.marker(latlng, { icon: pawIcon }).addTo(mapRef.current);
         pawMarkersRef.current.push(marker);
       }
@@ -1715,6 +1726,7 @@ function getEvenlySpacedPoints(latlngs, spacing = 10) {
 // Helper to extract floor info from OSM ways (features)
 function getFloorForNode(lat, lng, graph) {
   // Find the feature (way) that contains this node and has a floor tag
+ 
   for (const feat of graph.displayFeatures || []) {
     if (!feat.geometry) continue;
     let coordsArr = [];

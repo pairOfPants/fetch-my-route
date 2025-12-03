@@ -386,12 +386,20 @@ function _clearAll(): void {
 
 /** _placeMarker: place start/end markers */
 function _placeMarker(which: 'start' | 'end', lat: number, lng: number): void {
-  const icon = L.divIcon({
-    className: 'custom-marker',
-    html: `<div style="background:${which === 'start' ? '#22c55e' : '#ef4444'};width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 0 2px rgba(0,0,0,.6);"></div>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7]
+  const startIcon = L.icon({
+    iconUrl: './assets/stick-figure.png',
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+    tooltipAnchor: [0, -14]
   });
+  const endIcon = L.icon({
+    iconUrl: './assets/tennis-ball.png',
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+    tooltipAnchor: [0, -14]
+  });
+
+  const icon = which === 'start' ? startIcon : endIcon;
   const marker = L.marker([lat, lng], { icon });
   marker.addTo(_state.map);
 
