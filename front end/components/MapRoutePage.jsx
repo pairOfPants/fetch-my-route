@@ -21,6 +21,7 @@ import {
   Navigation,
   MousePointerClick,
   Trash2,
+  Pencil,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
@@ -38,6 +39,7 @@ const [newRouteDest, setNewRouteDest] = useState("");
 const [newRouteStartSuggestions, setNewRouteStartSuggestions] = useState([]);
 const [newRouteDestSuggestions, setNewRouteDestSuggestions] = useState([]);
 const [newRouteErrors, setNewRouteErrors] = useState({ name: "", start: "", dest: "" });
+const [editingRoute, setEditingRoute] = useState(null);
 
 
   const [confirmRoute, setConfirmRoute] = useState(null);
@@ -765,11 +767,30 @@ const openNewRouteCreator = () => {
   setShowNewRouteModal(true);
 };
 
+const openEditRoute = (route) => {
+  if (!isAuthenticated) {
+    setStatusMessage("Sign in to edit saved routes.");
+    return;
+  }
+  if (!route) return;
+
+  setEditingRoute(route);
+  setNewRouteName(route.name || "");
+  setNewRouteStart(route.start || "");
+  setNewRouteDest(route.dest || "");
+  setNewRouteStartSuggestions([]);
+  setNewRouteDestSuggestions([]);
+  setNewRouteErrors({ name: "", start: "", dest: "" });
+  setShowNewRouteModal(true);
+};
+
+
 // save the route
 const saveNewNamedRoute = async () => {
   if (!isAuthenticated || !userId) {
     setStatusMessage("Sign in to save routes.");
     setShowNewRouteModal(false);
+    setEditingRoute(null);
     return;
   }
 
@@ -793,23 +814,35 @@ const saveNewNamedRoute = async () => {
   // No errors — clear any previous ones
   setNewRouteErrors({ name: "", start: "", dest: "" });
 
-  // optional: max 5
-  if (savedRoutes.length >= 5) {
-    setStatusMessage("You can only store 5 saved routes. Delete one first.");
-    return;
-  }
-
   try {
-    await addDoc(collection(db, "users", userId, "routes"), {
-      name,
-      start,
-      dest,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+    if (editingRoute && editingRoute.id) {
+      // Update existing route
+      await updateDoc(doc(db, "users", userId, "routes", editingRoute.id), {
+        name,
+        start,
+        dest,
+        updatedAt: serverTimestamp(),
+      });
+      setStatusMessage("Saved route updated.");
+    } else {
+      // optional: max 5
+      if (savedRoutes.length >= 5) {
+        setStatusMessage("You can only store 5 saved routes. Delete one first.");
+        return;
+      }
+      // Create new route
+      await addDoc(collection(db, "users", userId, "routes"), {
+        name,
+        start,
+        dest,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      setStatusMessage("Route saved!");
+    }
 
-    setStatusMessage("Route saved!");
     setShowNewRouteModal(false);
+    setEditingRoute(null);
   } catch (err) {
     console.error("Failed to save route:", err);
     setStatusMessage("Unable to save route right now.");
@@ -1375,33 +1408,56 @@ const handleSuggestionSelect = (which, suggestion) => {
                     Save a route after drawing it to see it here.
                   </div>
                 ) : (
-                    savedRoutes.map((r) => (
-                      <div
-                        key={r.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => setConfirmRoute(r)}
-                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setConfirmRoute(r); } }}
-                        className="w-full text-left p-3 rounded-lg bg-white/10 border border-white/20 hover:bg-white/20 transition flex items-start justify-between gap-3 cursor-pointer"
-                        style={{ wordBreak: "break-word", whiteSpace: "normal" }}
-                        title={`Start: ${r.start} | Destination: ${r.dest}`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="font-semibold break-words">{r.name}</div>
-                          <div className="text-xs opacity-70 mt-1 break-words">
-                            Start: {r.start} | Destination: {r.dest}
+                    <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                      {savedRoutes.map((r) => (
+                        <div
+                          key={r.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setConfirmRoute(r)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              setConfirmRoute(r);
+                            }
+                          }}
+                          className="w-full text-left p-3 rounded-lg bg-white/10 border border-white/20 hover:bg-white/20 transition flex items-start justify-between gap-3 cursor-pointer"
+                          style={{ wordBreak: "break-word", whiteSpace: "normal" }}
+                          title={`Start: ${r.start} | Destination: ${r.dest}`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="font-semibold break-words">{r.name}</div>
+                            <div className="text-xs opacity-70 mt-1 break-words">
+                              Start: {r.start} | Destination: {r.dest}
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditRoute(r);
+                              }}
+                              className="p-2 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
+                              title="Edit saved route"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteRoute(r);
+                              }}
+                              className="p-2 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
+                              title="Delete saved route"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); deleteRoute(r); }}
-                          className="p-2 rounded-md bg-white/10 hover:bg-white/20 border border-white/20 shrink-0"
-                          title="Delete saved route"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))
+                      ))}
+                    </div>
                   )}
                 </div>
               </motion.div>
@@ -1464,13 +1520,13 @@ const handleSuggestionSelect = (which, suggestion) => {
   <>
     <motion.div className="fixed inset-0 bg-black/70 z-[115]"
       initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
-      onClick={()=>setShowNewRouteModal(false)} />
+      onClick={()=>{setShowNewRouteModal(false); setEditingRoute(null);}} />
     <motion.div className="fixed z-[125] rounded-2xl shadow-xl p-6 w-[92vw] max-w-[480px] border-2 text-white"
       style={{background:"#0b0b0b", borderColor:"#FFCB05", top:"50%", left:"50%", transform:"translate(-50%, -50%)"}}
       initial={{opacity:0, scale:0.9, y:8}} animate={{opacity:1, scale:1, y:0}} exit={{opacity:0, scale:0.9, y:8}}>
       <div className="flex justify-between items-center mb-4">
-        <h2 className="font-bold text-lg">New Saved Route</h2>
-        <button onClick={()=>setShowNewRouteModal(false)} className="hover:opacity-80"><X className="h-5 w-5"/></button>
+        <h2 className="font-bold text-lg">{editingRoute ? "Edit Saved Route" : "New Saved Route"}</h2>
+        <button onClick={()=>{setShowNewRouteModal(false); setEditingRoute(null);}} className="hover:opacity-80"><X className="h-5 w-5"/></button>
       </div>
       {(newRouteErrors.name || newRouteErrors.start || newRouteErrors.dest) && (
         <div className="mb-3 text-xs bg-red-500/15 border border-red-500/60 text-red-100 rounded-lg px-3 py-2">
@@ -1528,8 +1584,8 @@ const handleSuggestionSelect = (which, suggestion) => {
         </div>
       </div>
       <div className="flex justify-end gap-2 mt-5">
-        <button onClick={()=>setShowNewRouteModal(false)} className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15">Cancel</button>
-        <button onClick={saveNewNamedRoute} className="px-3 py-2 rounded-lg font-semibold" style={{background:"#FFCB05", color:"#111"}}>Save route</button>
+        <button onClick={()=>{setShowNewRouteModal(false); setEditingRoute(null);}} className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15">Cancel</button>
+        <button onClick={saveNewNamedRoute} className="px-3 py-2 rounded-lg font-semibold" style={{background:"#FFCB05", color:"#111"}}>{editingRoute ? "Save changes" : "Save route"}</button>
       </div>
     </motion.div>
   </>
