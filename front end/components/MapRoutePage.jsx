@@ -70,6 +70,7 @@ const [editingRoute, setEditingRoute] = useState(null);
   // shared a11y prefs
   const [highContrast, setHighContrast] = useState(false);
   const [textScale, setTextScale] = useState(1);
+  const [isMobile, setIsMobile] = useState(false);
 
   const containerRef = useRef(null);
   const mapContainerRef = useRef(null);
@@ -105,6 +106,17 @@ const [editingRoute, setEditingRoute] = useState(null);
       JSON.stringify({ ...prefs, highContrast, textScale })
     );
   }, [highContrast, textScale]);
+
+
+useEffect(() => {
+  const updateIsMobile = () => {
+    if (typeof window === "undefined") return;
+    setIsMobile(window.innerWidth < 768);
+  };
+  updateIsMobile();
+  window.addEventListener("resize", updateIsMobile);
+  return () => window.removeEventListener("resize", updateIsMobile);
+}, []);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -1188,7 +1200,11 @@ const handleSuggestionSelect = (which, suggestion) => {
       <div
         ref={containerRef}
         className="relative flex-1 grid overflow-hidden"
-        style={{ gridTemplateColumns: `${leftPct}% 12px ${100 - leftPct}%` }}
+        style={
+          isMobile
+            ? { gridTemplateRows: `${leftPct}% 12px ${100 - leftPct}%` }
+            : { gridTemplateColumns: `${leftPct}% 12px ${100 - leftPct}%` }
+        }
       >
         {/* LEFT — map */}
         <div className="relative overflow-hidden z-0">
@@ -1999,7 +2015,7 @@ function Modal({ title, children, onClose }) {
           borderColor: "#FFCB05",
           top: "50%",
           left: "50%",
-          transform: "translate(-50%, -50%)",
+          transform: "translate(-100%, 100%)",
         }}
         initial={{ opacity: 0, scale: 0.9, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
