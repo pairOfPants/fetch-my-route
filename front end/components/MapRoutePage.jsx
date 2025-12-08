@@ -660,15 +660,12 @@ useEffect(() => {
     { name: 'Dunkin Donuts', lat: '39.255054104325616', lon: '-76.71070371980493' },
     { name: 'Piccola Italia', lat: '39.255054104325616', lon: '-76.71070371980493' },
     { name: 'Indian Kitchen', lat: '39.255054104325616', lon: '-76.71070371980493' },
-    { name: 'The Commons', lat: '39.255054104325616', lon: '-76.71070371980493' },
+    { name: 'Commons Sports Zone', lat: '39.255054104325616', lon: '-76.71070371980493' },
     { name: 'Retriever Learning Center (RLC)', lat: '39.25630', lon: '-76.71155' },
     { name: 'Writing Center', lat: '39.25630', lon: '-76.71155' },
     { name: 'Einstein Bros Bagels', lat: '39.25630', lon: '-76.71155' },
-    
-
-
-
-
+    { name: 'Undergraduate Admissions', lat: '39.25630', lon: '-76.71155' },
+    { name: 'Department of Financial Aid', lat: '39.25630', lon: '-76.71155' },
 ],
     []
   );
