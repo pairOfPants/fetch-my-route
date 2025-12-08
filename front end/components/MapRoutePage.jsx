@@ -651,7 +651,24 @@ useEffect(() => {
     { name: 'UMBC Technology Center', lat: '39.23471', lon: '-76.71377' },
     { name: 'bwtech@UMBC North', lat: '39.24946312236066', lon: '-76.7144157716465' },
     { name: 'bwtech@UMBC South', lat: '39.24813201069917', lon: '-76.71439688284313' },
-    { name: 'Interdisciplinary Life Sciences Building', lat: '39.25393191088295', lon: '-76.71108146644416' }
+    { name: 'Interdisciplinary Life Sciences Building', lat: '39.25393191088295', lon: '-76.71108146644416' },
+    { name: 'Halal Shack', lat: '39.255054104325616', lon: '-76.71070371980493' },    
+    { name: 'Absurd Bird', lat: '39.255054104325616', lon: '-76.71070371980493' },
+    { name: 'Copperhead Jacks', lat: '39.255054104325616', lon: '-76.71070371980493' },
+    { name: 'Commons Market', lat: '39.255054104325616', lon: '-76.71070371980493' },
+    { name: 'Sushi Do', lat: '39.255054104325616', lon: '-76.71070371980493' },
+    { name: 'Dunkin Donuts', lat: '39.255054104325616', lon: '-76.71070371980493' },
+    { name: 'Piccola Italia', lat: '39.255054104325616', lon: '-76.71070371980493' },
+    { name: 'Indian Kitchen', lat: '39.255054104325616', lon: '-76.71070371980493' },
+    { name: 'The Commons', lat: '39.255054104325616', lon: '-76.71070371980493' },
+    { name: 'Retriever Learning Center (RLC)', lat: '39.25630', lon: '-76.71155' },
+    { name: 'Writing Center', lat: '39.25630', lon: '-76.71155' },
+    { name: 'Einstein Bros Bagels', lat: '39.25630', lon: '-76.71155' },
+    
+
+
+
+
 ],
     []
   );
