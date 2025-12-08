@@ -22,13 +22,14 @@ import {
   MousePointerClick,
   Trash2,
   Pencil,
+  Wrench,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
 import { getRoute, isOSRMAvailable, generateBasicInstructions } from "@/lib/osrmClient";
 
-export default function MapRoutePage({ onBackToSplash, user }) {
+export default function MapRoutePage({ onBackToSplash, user, isAdmin = false, onGoToEditRoutes }) {
   const [leftPct, setLeftPct] = useState(50);
   const [activeStep, setActiveStep] = useState(1);
   const [showSavedRoutes, setShowSavedRoutes] = useState(false);
@@ -1181,6 +1182,18 @@ const handleSuggestionSelect = (which, suggestion) => {
               <BookmarkPlus className="h-4 w-4" />
               Save route
             </button>
+            {/* Admin-only: go to Route Editor */}
+            {isAdmin && typeof onGoToEditRoutes === 'function' && (
+              <button
+                onClick={onGoToEditRoutes}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl font-semibold border"
+                style={{ background: brand.gold, color: "#111", borderColor: "#2b2b2b" }}
+                title="Open route editor (admin)"
+              >
+                <Wrench className="h-4 w-4" />
+                Edit Routes
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2 ml-auto md:ml-4">
@@ -1659,8 +1672,7 @@ const handleSuggestionSelect = (which, suggestion) => {
       <div className="flex justify-end gap-2 mt-5">
         <button onClick={()=>{setShowNewRouteModal(false); setEditingRoute(null);}} className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15">Cancel</button>
         <button onClick={saveNewNamedRoute} className="px-3 py-2 rounded-lg font-semibold" style={{background:"#FFCB05", color:"#111"}}>{editingRoute ? "Save changes" : "Save route"}</button>
-      </div>
-    </motion.div>
+      </div>    </motion.div>
   </>
 )}
 </AnimatePresence>

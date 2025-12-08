@@ -4,10 +4,16 @@ import { useCallback, useEffect, useState } from 'react'
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
 import SplashScreen from '@/components/SplashScreen'
 import MapRoutePage from '@/components/MapRoutePage'
+import AdminDashboard from '@/components/AdminDashboard'
 import { auth, googleProvider } from '@/lib/firebaseClient'
 
 const NON_UMBC_ERROR_MESSAGE =
   'Retriever Alert 🐾 This app is for UMBC accounts only. Please sign in with your official @umbc.edu email.'
+
+const ADMIN_EMAILS = [
+  'adenham112@gmail.com',
+  // Add more admin emails here if needed
+]
 
 export default function HomePage() {
   const [view, setView] = useState('splash')
@@ -21,9 +27,10 @@ export default function HomePage() {
       if (user) {
         const email = (user.email || '').toLowerCase()
         const isUmbcEmail = email.endsWith('@umbc.edu')
+        const isAdmin = ADMIN_EMAILS.includes(email)
 
-        if (!isUmbcEmail) {
-          // Immediately sign out users who are not using a umbc.edu email
+        if (!isUmbcEmail && !isAdmin) {
+          // Immediately sign out users who are not using a umbc.edu email or admin
           signOut(auth).catch((err) => {
             console.error('Error signing out non-UMBC user from auth state change:', err)
           })
@@ -53,9 +60,10 @@ export default function HomePage() {
       const user = result.user
       const email = (user.email || '').toLowerCase()
       const isUmbcEmail = email.endsWith('@umbc.edu')
+      const isAdmin = ADMIN_EMAILS.includes(email)
 
-      if (!isUmbcEmail) {
-        // Not a umbc.edu email → sign them out and show an UMBC-themed error "pushback"
+      if (!isUmbcEmail && !isAdmin) {
+        // Not a umbc.edu email or admin → sign them out and show an UMBC-themed error "pushback"
         await signOut(auth).catch((err) => {
           console.error('Error signing out non-UMBC user after popup:', err)
         })
@@ -103,7 +111,18 @@ export default function HomePage() {
   }, [currentUser])
 
   if (view === 'map') {
-    return <MapRoutePage user={currentUser} onBackToSplash={handleBackToSplash} />
+    // Show admin dashboard if admin, else regular map
+    const email = currentUser?.email?.toLowerCase() || '';
+    const isAdmin = ADMIN_EMAILS.includes(email);
+    if (isAdmin) {
+      return (
+        <AdminDashboard
+          user={currentUser}
+          onLogout={handleBackToSplash}
+        />
+      );
+    }
+    return <MapRoutePage user={currentUser} onBackToSplash={handleBackToSplash} />;
   }
 
   return (
