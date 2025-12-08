@@ -2,8 +2,11 @@ import './globals.css'
 import 'leaflet/dist/leaflet.css'
 
 export const metadata = {
-  title: 'Lets Leave',
+  title: 'Fetch My Route',
   description: 'UMBC GPS front end',
+  icons: {
+    icon: '/assets/pawprint.png',
+  },
 }
 
 export default function RootLayout({ children }) {
