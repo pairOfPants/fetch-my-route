@@ -9,7 +9,7 @@ function useUser() {
   const [user, setUser] = useState(null);
   useEffect(() => {
     // Example: simulate login
-    setUser({ email: "adenham112@gmail.com", displayName: "Aden Ham" });
+    setUser({ email: "csumah1@umbc.edu", displayName: "Celestine Sumah" });
   }, []);
   return user;
 }
