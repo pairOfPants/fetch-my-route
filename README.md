@@ -1,7 +1,11 @@
 ![Logo](./assets/SplashScreenshot.png)
+[![License](https://img.shields.io/badge/license-Unlicensed-red.svg)](https://github.com/pairOfPants/fetch-my-route) [![Next.js](https://img.shields.io/badge/Next.js-15.5.7-black.svg?logo=next.js)](https://nextjs.org/) [![React](https://img.shields.io/badge/React-18.3.1-blue.svg?logo=react)](https://reactjs.org/)[![Firebase](https://img.shields.io/badge/Firebase-12.6.0-orange.svg?logo=firebase)](https://firebase.google.com/)[![Leaflet](https://img.shields.io/badge/Leaflet-1.9.4-green.svg?logo=leaflet)](https://leafletjs.com/)
+[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4.18-blue.svg?logo=tailwind-css)](https://tailwindcss.com/)[![Node.js](https://img.shields.io/badge/Node.js-22.x-green.svg?logo=node.js)](https://nodejs.org/)[![Accessibility](https://img.shields.io/badge/Accessibility-WCAG_2.1-purple.svg)](https://www.w3.org/WAI/WCAG21/quickref/)
+[![UMBC](https://img.shields.io/badge/For-UMBC_Students-gold.svg)](https://umbc.edu/)
 
 # Fetch My Route!
 #### Your guide to accessible routes around UMBC 
+
 
 
 ## 📋 Table of Contents
