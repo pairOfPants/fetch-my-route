@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   RotateCcw,
+  Home,
   X,
   GripVertical,
   BookOpenText,
@@ -83,6 +84,7 @@ const [editingRoute, setEditingRoute] = useState(null);
   const endMarkerRef = useRef(null);
   const routeLineRef = useRef(null);
   const userMarkerRef = useRef(null);
+  const watchIdRef = useRef(null);
   const startKeyRef = useRef(null);
   const endKeyRef = useRef(null);
   const mapClickEnabledRef = useRef(false);
@@ -90,10 +92,18 @@ const [editingRoute, setEditingRoute] = useState(null);
 
   const pawMarkersRef = useRef([]); //for keeping track of paw print markers
 
+  // Live tracking state
+  const [isTracking, setIsTracking] = useState(false);
+  const [followUser, setFollowUser] = useState(true);
+  const [gpsInfo, setGpsInfo] = useState({ accuracy: null, speed: null });
+
   const brand = useMemo(
     () => ({ gold: "#FFCB05", black: "#000000", ink: "#111111" }),
     []
   );
+  // Default map view for UMBC
+  const DEFAULT_CENTER = [39.25540482760391, -76.71198247080514];
+  const DEFAULT_ZOOM = 17;
   const SAVED_ROUTES_KEY = "letsleave:savedRoutes";
 
   useEffect(() => {
@@ -383,6 +393,11 @@ useEffect(() => {
   };
 
   const clearAll = () => {
+    // Stop any ongoing live tracking
+    try { if (watchIdRef.current != null && navigator.geolocation?.clearWatch) navigator.geolocation.clearWatch(watchIdRef.current); } catch {}
+    watchIdRef.current = null;
+    setIsTracking(false);
+
     startKeyRef.current = null;
     endKeyRef.current = null;
     setDistanceLabel("");
@@ -411,6 +426,15 @@ useEffect(() => {
     // Remove pawprints
     pawMarkersRef.current.forEach(marker => mapRef.current.removeLayer(marker));
     pawMarkersRef.current = [];
+  };
+
+  // Reset map to default view without clearing any markers or routes
+  const resetMapView = () => {
+    if (!mapRef.current) return;
+    try {
+      mapRef.current.setView(DEFAULT_CENTER, DEFAULT_ZOOM, { animate: true });
+      setStatusMessage("Map reset to default view.");
+    } catch {}
   };
 
   useEffect(() => {
@@ -1033,6 +1057,139 @@ const handleSuggestionSelect = (which, suggestion) => {
     }).addTo(mapRef.current);
   };
 
+  // Compute total length of a polyline in meters using Leaflet distance
+  const polylineLengthMeters = (latlngs) => {
+    const L = leafletRef.current;
+    if (!L || !latlngs || latlngs.length < 2) return 0;
+    let total = 0;
+    for (let i = 1; i < latlngs.length; i++) {
+      const a = L.latLng(latlngs[i - 1][0], latlngs[i - 1][1]);
+      const b = L.latLng(latlngs[i][0], latlngs[i][1]);
+      total += a.distanceTo(b);
+    }
+    return total;
+  };
+
+  // Project a point onto the current route polyline to get nearest point and progress
+  const projectToRoute = (lat, lng) => {
+    if (!mapRef.current || !routeLineRef.current) return null;
+    const L = leafletRef.current;
+    const latlngs = routeLineRef.current.getLatLngs().map((p) => [p.lat, p.lng]);
+    if (!latlngs || latlngs.length < 2) return null;
+
+    const point = mapRef.current.latLngToLayerPoint([lat, lng]);
+    let best = { dist2: Infinity, snapped: null, segIndex: -1, t: 0 };
+    for (let i = 1; i < latlngs.length; i++) {
+      const aLL = latlngs[i - 1];
+      const bLL = latlngs[i];
+      const a = mapRef.current.latLngToLayerPoint(aLL);
+      const b = mapRef.current.latLngToLayerPoint(bLL);
+      const ab = { x: b.x - a.x, y: b.y - a.y };
+      const ap = { x: point.x - a.x, y: point.y - a.y };
+      const ab2 = ab.x * ab.x + ab.y * ab.y;
+      const t = ab2 === 0 ? 0 : Math.max(0, Math.min(1, (ap.x * ab.x + ap.y * ab.y) / ab2));
+      const proj = { x: a.x + ab.x * t, y: a.y + ab.y * t };
+      const dx = point.x - proj.x;
+      const dy = point.y - proj.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < best.dist2) {
+        best = { dist2: d2, snapped: proj, segIndex: i - 1, t };
+      }
+    }
+
+    // Convert snapped back to lat/lng
+    const snappedLatLng = mapRef.current.layerPointToLatLng(best.snapped);
+
+    // Compute distance along route to snapped point
+    let traveled = 0;
+    const latlngsLL = routeLineRef.current.getLatLngs();
+    for (let i = 1; i <= best.segIndex; i++) {
+      traveled += latlngsLL[i - 1].distanceTo(latlngsLL[i]);
+    }
+    if (best.segIndex >= 0) {
+      const segA = latlngsLL[best.segIndex];
+      const snappedLL = L.latLng(snappedLatLng.lat, snappedLatLng.lng);
+      traveled += segA.distanceTo(snappedLL);
+    }
+    const total = polylineLengthMeters(latlngs);
+    const offRouteMeters = L.latLng(lat, lng).distanceTo(L.latLng(snappedLatLng.lat, snappedLatLng.lng));
+
+    return { snapped: [snappedLatLng.lat, snappedLatLng.lng], traveled, total, offRouteMeters };
+  };
+
+  const stopTracking = () => {
+    try {
+      if (watchIdRef.current != null && navigator.geolocation?.clearWatch) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    } catch {}
+    watchIdRef.current = null;
+    setIsTracking(false);
+  };
+
+  const startTracking = () => {
+    if (!navigator.geolocation) {
+      setStatusMessage("Geolocation is not supported in this browser.");
+      return;
+    }
+    if (!mapRef.current) {
+      setStatusMessage("Map not ready yet.");
+      return;
+    }
+    if (!routeLineRef.current) {
+      setStatusMessage("Draw a route first, then start tracking.");
+      return;
+    }
+    // If already tracking, stop first
+    if (watchIdRef.current != null) stopTracking();
+
+    setStatusMessage("Starting live location tracking...");
+    const id = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude: lat, longitude: lng, accuracy, speed } = pos.coords;
+        setGpsInfo({ accuracy: accuracy ?? null, speed: speed ?? null });
+        placeUserMarker(lat, lng);
+        if (followUser) {
+          try {
+            mapRef.current.panTo([lat, lng], { animate: true });
+          } catch {}
+        }
+        const progress = projectToRoute(lat, lng);
+        if (progress) {
+          const pct = progress.total > 0 ? Math.min(100, Math.max(0, (progress.traveled / progress.total) * 100)) : 0;
+          const off = Math.round(progress.offRouteMeters);
+          if (off <= 25) {
+            setStatusMessage(`On route • ${pct.toFixed(0)}% complete`);
+          } else {
+            setStatusMessage(`Off route by ~${off} m • ${pct.toFixed(0)}% complete`);
+          }
+        }
+        if (!isTracking) setIsTracking(true);
+      },
+      (err) => {
+        let msg = "Unable to track your location.";
+        if (err.code === err.PERMISSION_DENIED) msg = "Location permission denied.";
+        else if (err.code === err.TIMEOUT) msg = "Location request timed out.";
+        setStatusMessage(msg);
+        stopTracking();
+      },
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+    );
+    watchIdRef.current = id;
+    setIsTracking(true);
+  };
+
+  // Cleanup tracking on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        if (watchIdRef.current != null && navigator.geolocation?.clearWatch) {
+          navigator.geolocation.clearWatch(watchIdRef.current);
+        }
+      } catch {}
+    };
+  }, []);
+
   const handleLocateMe = () => {
     if (!navigator.geolocation) {
       setStatusMessage("Geolocation is not supported in this browser.");
@@ -1162,6 +1319,15 @@ const handleSuggestionSelect = (which, suggestion) => {
               <RotateCcw className="h-4 w-4" /> Clear
             </button>
             <button
+              onClick={resetMapView}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl font-semibold border text-white"
+              style={{ background: "#111827", borderColor: "#2b2b2b" }}
+              disabled={!mapReady}
+              title="Reset map view to default"
+            >
+              <Home className="h-4 w-4" /> Reset view
+            </button>
+            <button
               onClick={toggleMapClick}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-xl font-semibold border"
               style={{
@@ -1192,6 +1358,26 @@ const handleSuggestionSelect = (which, suggestion) => {
               <BookmarkPlus className="h-4 w-4" />
               Save route
             </button>
+            <button
+              onClick={() => (isTracking ? stopTracking() : startTracking())}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl font-semibold border"
+              style={{
+                background: routeLineRef.current ? brand.gold : "#0f172a",
+                color: routeLineRef.current ? "#111" : "#9ca3af",
+                borderColor: "#2b2b2b",
+              }}
+              disabled={!routeLineRef.current}
+              title={routeLineRef.current ? (isTracking ? "Stop live tracking" : "Start live tracking") : "Draw a route to enable tracking"}
+            >
+              <MapPin className="h-4 w-4" />
+              {isTracking ? "Stop tracking" : "Start tracking"}
+            </button>
+            {isTracking && (
+              <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl font-semibold border text-white" style={{ borderColor: "#2b2b2b", background: "#0f172a" }}>
+                <input type="checkbox" checked={followUser} onChange={(e) => setFollowUser(e.target.checked)} />
+                Follow
+              </label>
+            )}
             {/* Admin-only: go to Route Editor */}
             {isAdmin && typeof onGoToEditRoutes === 'function' && (
               <button
@@ -1329,6 +1515,13 @@ const handleSuggestionSelect = (which, suggestion) => {
                   <Clock className="h-3.5 w-3.5" /> {distanceLabel ? `Distance ${distanceLabel}` : "Waiting for route"}
                   <A11yIcon className="h-3.5 w-3.5" /> step-free focus
                 </span>
+                {isTracking && (
+                  <span className="inline-flex items-center gap-2 text-xs opacity-90 whitespace-nowrap ml-3">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {gpsInfo.accuracy != null ? `±${Math.round(gpsInfo.accuracy)} m` : "tracking"}
+                    {gpsInfo.speed != null && ` • ${(gpsInfo.speed * 3.6).toFixed(0)} km/h`}
+                  </span>
+                )}
               </div>
               {/* Human-readable instructions (scrollable) */}
               {instructions.length > 0 && (
