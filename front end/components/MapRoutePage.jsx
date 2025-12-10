@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState, useEffect } from "react";
+import { getGeojsonEdits } from "@/lib/route";
 import {
   LogOut,
   Bookmark,
@@ -259,24 +260,24 @@ useEffect(() => {
         }).addTo(mapInstance);
         L.control.zoom({ position: "topleft" }).addTo(mapInstance);
 
-        // Try to load edits first, fall back to original
-        let geojsonUrl = "/OSM-data/campus.geojson";
+        // Try to load edits from Firebase first
+        let geojsonData = null;
         try {
-          const editsRes = await fetch("/OSM-data/campusEdits.geojson");
-          if (editsRes.ok) {
-            const editsData = await editsRes.json();
-            // Only use edits if it has features
-            if (editsData.features && editsData.features.length > 0) {
-              geojsonUrl = "/OSM-data/campusEdits.geojson";
-            }
+          const editsResult = await getGeojsonEdits('campusEdits');
+          if (editsResult.success && editsResult.geojson) {
+            geojsonData = editsResult.geojson;
           }
         } catch {
-          // Fall back to original if edits check fails
+          // Fall back to original if Firebase check fails
         }
 
-        const res = await fetch(geojsonUrl);
-        const data = await res.json();
-        const graph = buildGraphFromGeoJSON(L, data);
+        // If no edits, load original
+        if (!geojsonData) {
+          const res = await fetch("/OSM-data/campus.geojson");
+          geojsonData = await res.json();
+        }
+
+        const graph = buildGraphFromGeoJSON(L, geojsonData);
         graphRef.current = graph;
 
         // Create initial layer group

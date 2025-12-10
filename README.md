@@ -1,4 +1,4 @@
-## umbc accessibility gps
+# Fetch my Route!
 Official repository for the umbc accesibility gps, a Fall 2025 project for CMSC 447 
 
 ## Team: Aidan Denham, Ethan Michalik, Celestine Sumah, Alex Marbut

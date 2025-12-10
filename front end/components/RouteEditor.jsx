@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect } from "react";
-import { X, Trash2, Pencil, Navigation } from "lucide-react";
-import { saveGeojsonEdits } from "@/lib/route";
+import { X, Trash2, Pencil, Navigation, Plus } from "lucide-react";
+import { saveGeojsonEdits, getGeojsonEdits, deleteGeojsonEdits } from "@/lib/route";
 
 export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
   const [geojson, setGeojson] = useState(null);
@@ -10,6 +10,9 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
   const [editMode, setEditMode] = useState(false);
   const [editCoords, setEditCoords] = useState([]);
   const [status, setStatus] = useState("");
+  const [addSegmentMode, setAddSegmentMode] = useState(false);
+  const [drawingCoords, setDrawingCoords] = useState([]);
+  const [drawingMarkers, setDrawingMarkers] = useState([]);
 
   const mapRef = useRef(null);
   const leafletRef = useRef(null);
@@ -21,25 +24,19 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
   const DEFAULT_CENTER = [39.25540482760391, -76.71198247080514];
   const DEFAULT_ZOOM = 17;
   const mapInteractivityDisabledRef = useRef(false);
+  const mapClickHandlerRef = useRef(null);
 
   const loadGeojson = async () => {
     try {
-      // Try to load edits first, fall back to original
-      let geojsonUrl = "/OSM-data/campus.geojson";
-      try {
-        const editsRes = await fetch("/OSM-data/campusEdits.geojson");
-        if (editsRes.ok) {
-          const editsData = await editsRes.json();
-          // Only use edits if it has features
-          if (editsData.features && editsData.features.length > 0) {
-            geojsonUrl = "/OSM-data/campusEdits.geojson";
-          }
-        }
-      } catch {
-        // Fall back to original if edits check fails
+      // Try to load edits from Firebase first
+      const editsResult = await getGeojsonEdits('campusEdits');
+      if (editsResult.success && editsResult.geojson) {
+        setGeojson(editsResult.geojson);
+        return;
       }
 
-      const res = await fetch(geojsonUrl);
+      // Fall back to original
+      const res = await fetch("/OSM-data/campus.geojson");
       const data = await res.json();
       setGeojson(data);
     } catch (err) {
@@ -411,19 +408,278 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
     }
     vertexMarkersRef.current = [];
     
-    // Reload original GeoJSON (not edits)
-    const loadOriginal = async () => {
+    // Delete edits from Firebase and reload original
+    const resetToOriginal = async () => {
       try {
+        // Delete the edits document
+        await deleteGeojsonEdits('campusEdits');
+        
+        // Reload original GeoJSON
         const res = await fetch("/OSM-data/campus.geojson");
         const data = await res.json();
         setGeojson(data);
-        setStatus("Map reset to original data.");
+        setStatus("Map reset to original data. All edits deleted.");
       } catch (err) {
+        console.error("Error during reset:", err);
         setStatus("Failed to reset map.");
       }
     };
     
-    loadOriginal();
+    resetToOriginal();
+  };
+
+  const handleMapClick = (latlng) => {
+    if (!addSegmentMode) return;
+    
+    const newCoord = { lat: latlng.lat, lon: latlng.lng };
+    const updatedCoords = [...drawingCoords, newCoord];
+    setDrawingCoords(updatedCoords);
+
+    // Add marker to map
+    const L = leafletRef.current;
+    if (!L || !mapRef.current) return;
+
+    const markerIcon = L.divIcon({
+      className: "drawing-vertex-marker",
+      html: `<div style="width:14px;height:14px;border-radius:50%;background:#FF6B6B;border:2px solid #fff;box-shadow:0 0 6px rgba(0,0,0,0.4)"></div>`,
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+    });
+
+    const marker = L.marker([latlng.lat, latlng.lng], { icon: markerIcon }).addTo(mapRef.current);
+    setDrawingMarkers(prev => [...prev, marker]);
+
+    // Draw line connecting points
+    if (updatedCoords.length > 1) {
+      const latlngs = updatedCoords.map(c => [c.lat, c.lon]);
+      const polyline = L.polyline(latlngs, {
+        color: "#FF6B6B",
+        weight: 3,
+        opacity: 0.8,
+        dashArray: "5, 5"
+      }).addTo(mapRef.current);
+      
+      // Store reference for cleanup
+      if (!mapRef.current._drawingPolyline) {
+        mapRef.current._drawingPolyline = polyline;
+      } else {
+        try { mapRef.current.removeLayer(mapRef.current._drawingPolyline); } catch {}
+        mapRef.current._drawingPolyline = polyline;
+      }
+    }
+
+    setStatus(`Points: ${updatedCoords.length}. Click to add more, then "Done Drawing" or "Edit Lines".`);
+  };
+
+  const startAddSegment = () => {
+    if (!mapRef.current) return;
+    setAddSegmentMode(true);
+    setDrawingCoords([]);
+    setDrawingMarkers([]);
+    setStatus("Click on the map to add points. Click 'Done Drawing' when finished.");
+
+    const L = leafletRef.current;
+    if (!L) return;
+
+    // Remove any existing click handler first
+    if (mapRef.current._drawingClickHandler) {
+      mapRef.current.off('click', mapRef.current._drawingClickHandler);
+    }
+
+    // Create the new click handler
+    const clickHandler = (e) => {
+      const newCoord = { lat: e.latlng.lat, lon: e.latlng.lng };
+      setDrawingCoords(prev => {
+        const updatedCoords = [...prev, newCoord];
+
+        // Add marker to map
+        const markerIcon = L.divIcon({
+          className: "drawing-vertex-marker",
+          html: `<div style="width:14px;height:14px;border-radius:50%;background:#FF6B6B;border:2px solid #fff;box-shadow:0 0 6px rgba(0,0,0,0.4)"></div>`,
+          iconSize: [14, 14],
+          iconAnchor: [7, 7],
+        });
+
+        const marker = L.marker([newCoord.lat, newCoord.lon], { icon: markerIcon }).addTo(mapRef.current);
+        setDrawingMarkers(prev => [...prev, marker]);
+
+        // Draw or update line connecting points
+        if (updatedCoords.length > 1) {
+          const latlngs = updatedCoords.map(c => [c.lat, c.lon]);
+          
+          // Remove old polyline if exists
+          if (mapRef.current._drawingPolyline) {
+            try { mapRef.current.removeLayer(mapRef.current._drawingPolyline); } catch {}
+          }
+
+          // Create new polyline
+          const polyline = L.polyline(latlngs, {
+            color: "#FF6B6B",
+            weight: 3,
+            opacity: 0.8,
+            dashArray: "5, 5"
+          }).addTo(mapRef.current);
+
+          mapRef.current._drawingPolyline = polyline;
+        }
+
+        setStatus(`Points: ${updatedCoords.length}. Click to add more, then "Done Drawing" or "Edit Lines".`);
+        return updatedCoords;
+      });
+    };
+
+    // Store and attach the handler
+    mapRef.current._drawingClickHandler = clickHandler;
+    mapRef.current.on('click', clickHandler);
+  };
+
+  const finishDrawing = () => {
+    if (drawingCoords.length < 2) {
+      setStatus("Need at least 2 points to create a segment.");
+      return;
+    }
+
+    setAddSegmentMode(false);
+    setStatus("Edit the line or click 'Save Segment' to finalize.");
+
+    // Remove click handler
+    if (mapRef.current._drawingClickHandler) {
+      mapRef.current.off('click', mapRef.current._drawingClickHandler);
+      mapRef.current._drawingClickHandler = null;
+    }
+
+    // Remove dashed drawing polyline
+    if (mapRef.current._drawingPolyline) {
+      try { mapRef.current.removeLayer(mapRef.current._drawingPolyline); } catch {}
+      mapRef.current._drawingPolyline = null;
+    }
+
+    // Convert to edit mode for the new segment
+    const pts = drawingCoords;
+    setEditCoords(pts);
+    setEditMode(true);
+
+    // Clear old markers
+    drawingMarkers.forEach(m => {
+      try { mapRef.current.removeLayer(m); } catch {}
+    });
+    setDrawingMarkers([]);
+
+    // Create draggable vertices (yellow)
+    const L = leafletRef.current;
+    const vertexIcon = L.divIcon({
+      className: "vertex-marker",
+      html: `<div style="width:12px;height:12px;border-radius:50%;background:#FFCB05;border:2px solid #111;box-shadow:0 0 4px rgba(0,0,0,0.3)"></div>`,
+      iconSize: [12, 12],
+      iconAnchor: [6, 6],
+    });
+
+    const newMarkers = [];
+    pts.forEach((pt, idx) => {
+      const m = L.marker([pt.lat, pt.lon], { draggable: true, icon: vertexIcon });
+      m.on("drag", (e) => {
+        const ll = e.target.getLatLng();
+        setEditCoords(prev => {
+          const next = prev.map((p, i) => (i === idx ? { lat: ll.lat, lon: ll.lng } : p));
+          updateDrawingPolyline(next);
+          return next;
+        });
+      });
+      m.addTo(mapRef.current);
+      newMarkers.push(m);
+    });
+    setDrawingMarkers(newMarkers);
+
+    // Draw solid line for editable segment
+    updateDrawingPolyline(pts);
+  };
+
+  const updateDrawingPolyline = (coords) => {
+    const L = leafletRef.current;
+    if (!L || !mapRef.current) return;
+    
+    if (mapRef.current._drawingPolyline) {
+      try { mapRef.current.removeLayer(mapRef.current._drawingPolyline); } catch {}
+    }
+
+    const latlngs = coords.map(c => [c.lat, c.lon]);
+    const polyline = L.polyline(latlngs, {
+      color: "#FF6B6B",
+      weight: 3,
+      opacity: 0.8,
+      dashArray: "5, 5"
+    }).addTo(mapRef.current);
+    mapRef.current._drawingPolyline = polyline;
+  };
+
+  const cancelAddSegment = () => {
+    const L = leafletRef.current;
+    if (mapRef.current._drawingClickHandler) {
+      mapRef.current.off('click', mapRef.current._drawingClickHandler);
+      mapRef.current._drawingClickHandler = null;
+    }
+
+    // Remove drawing markers and polyline
+    drawingMarkers.forEach(m => {
+      try { mapRef.current.removeLayer(m); } catch {}
+    });
+    setDrawingMarkers([]);
+
+    if (mapRef.current._drawingPolyline) {
+      try { mapRef.current.removeLayer(mapRef.current._drawingPolyline); } catch {}
+      mapRef.current._drawingPolyline = null;
+    }
+
+    setAddSegmentMode(false);
+    setEditMode(false);
+    setDrawingCoords([]);
+    setEditCoords([]);
+    enableMapInteractivity();
+    setStatus("Add segment cancelled.");
+  };
+
+  const saveNewSegment = () => {
+    if (editCoords.length < 2) {
+      setStatus("Need at least 2 points to save a segment.");
+      return;
+    }
+
+    // Create new feature
+    const newFeature = {
+      type: "Feature",
+      geometry: {
+        type: "LineString",
+        coordinates: editCoords.map(({ lat, lon }) => [lon, lat])
+      },
+      properties: {}
+    };
+
+    // Add to geojson
+    const newFeatures = [...(geojson.features || []), newFeature];
+    const newGeojson = { ...geojson, features: newFeatures };
+    setGeojson(newGeojson);
+
+    // Clean up
+    drawingMarkers.forEach(m => {
+      try { mapRef.current.removeLayer(m); } catch {}
+    });
+    setDrawingMarkers([]);
+
+    if (mapRef.current._drawingPolyline) {
+      try { mapRef.current.removeLayer(mapRef.current._drawingPolyline); } catch {}
+      mapRef.current._drawingPolyline = null;
+    }
+
+    setAddSegmentMode(false);
+    setEditMode(false);
+    setDrawingCoords([]);
+    setEditCoords([]);
+    setSelectedIdx(null);
+    enableMapInteractivity();
+
+    setStatus("Segment added!");
+    saveEditsToFile(newGeojson);
+    redrawAll(false);
   };
 
   return (
@@ -441,7 +697,6 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-lg font-semibold">Route Editor</h2>
           <div className="flex items-center gap-2">
-            {/* Admin-only: go to User View */}
             {isAdmin && typeof onGoToUserView === 'function' && (
               <button
                 onClick={onGoToUserView}
@@ -467,9 +722,35 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
             <span className="text-sm text-gray-600">{status}</span>
           </div>
           <div className="flex space-x-2">
+            {!addSegmentMode && !editMode && (
+              <button
+                onClick={startAddSegment}
+                className="px-3 py-1 text-sm font-medium text-white bg-purple-600 rounded-md hover:bg-purple-700"
+              >
+                <Plus className="w-4 h-4 mr-1 inline" />
+                Add Segment
+              </button>
+            )}
+            {addSegmentMode && (
+              <button
+                onClick={finishDrawing}
+                disabled={drawingCoords.length < 2}
+                className="px-3 py-1 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300"
+              >
+                Done Drawing
+              </button>
+            )}
+            {editMode && addSegmentMode === false && (
+              <button
+                onClick={saveNewSegment}
+                className="px-3 py-1 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700"
+              >
+                Save Segment
+              </button>
+            )}
             <button
               onClick={handleEdit}
-              disabled={selectedIdx == null}
+              disabled={selectedIdx == null || addSegmentMode}
               className="px-3 py-1 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-gray-300"
             >
               <Pencil className="w-4 h-4 mr-1 inline" />
@@ -477,7 +758,7 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
             </button>
             <button
               onClick={handleDelete}
-              disabled={selectedIdx == null}
+              disabled={selectedIdx == null || addSegmentMode}
               className="px-3 py-1 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:bg-gray-300"
             >
               <Trash2 className="w-4 h-4 mr-1 inline" />
@@ -486,14 +767,8 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
           </div>
         </div>
 
-        {editMode && (
+        {(editMode || addSegmentMode) && (
           <div className="mb-3">
-            <button
-              onClick={handleSaveEdit}
-              className="px-3 py-1 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 mr-2"
-            >
-              Save Changes
-            </button>
             <button
               onClick={handleCancelEdit}
               className="px-3 py-1 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300"
