@@ -231,19 +231,33 @@ useEffect(() => {
     placingRef.current = placing;
   }, [placing]);
 
+  const [mapContainerId] = useState(() => `map-container-${Date.now()}-${Math.random()}`);
+
   useEffect(() => {
     let clickHandler = null;
     let mapInstance = null;
 
     const init = async () => {
-      // Only initialize once per mount
-      if (mapRef.current) return;
+      // Create a completely fresh div element
+      const existingContainer = document.getElementById(mapContainerId);
+      if (existingContainer) {
+        existingContainer.remove();
+      }
+      
+      const newContainer = document.createElement('div');
+      newContainer.id = mapContainerId;
+      newContainer.className = 'absolute inset-0';
+      
+      if (mapContainerRef.current) {
+        mapContainerRef.current.innerHTML = '';
+        mapContainerRef.current.appendChild(newContainer);
+      }
 
       try {
         const L = (await import("leaflet")).default;
         leafletRef.current = L;
 
-        mapInstance = L.map(mapContainerRef.current, { zoomControl: false });
+        mapInstance = L.map(newContainer, { zoomControl: false });
         mapRef.current = mapInstance;
 
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -253,19 +267,24 @@ useEffect(() => {
         }).addTo(mapInstance);
         L.control.zoom({ position: "topleft" }).addTo(mapInstance);
 
-        // Try to load edits from Firebase first
+        // Try to load edits from database first
         let geojsonData = null;
         try {
+          console.log('MapRoutePage: Loading GeoJSON data...');
           const editsResult = await getGeojsonEdits('campusEdits');
+          console.log('MapRoutePage: Database result:', editsResult);
+          
           if (editsResult.success && editsResult.geojson) {
+            console.log('MapRoutePage: Loaded GeoJSON edits from database');
             geojsonData = editsResult.geojson;
           }
-        } catch {
-          // Fall back to original if Firebase check fails
+        } catch (error) {
+          console.error('MapRoutePage: Failed to get edits from database:', error);
         }
 
         // If no edits, load original
         if (!geojsonData) {
+          console.log('MapRoutePage: No edits found, loading original campus.geojson');
           const res = await fetch("/OSM-data/campus.geojson");
           geojsonData = await res.json();
         }
@@ -302,9 +321,19 @@ useEffect(() => {
     init();
 
     return () => {
-      if (mapInstance && clickHandler) mapInstance.off("click", clickHandler);
+      if (mapInstance && clickHandler) {
+        try {
+          mapInstance.off("click", clickHandler);
+          mapInstance.remove();
+        } catch {}
+      }
+      // Remove the container entirely
+      const container = document.getElementById(mapContainerId);
+      if (container) {
+        container.remove();
+      }
     };
-  }, []); // Initialize only once per mount
+  }, [mapContainerId]);
 
   const pillPosStyle = useMemo(() => {
     if (leftPct <= 6) return { left: 16, transform: "translateY(-50%)" };
@@ -1690,7 +1719,7 @@ const handleSuggestionSelect = (which, suggestion) => {
 
 {/* ROUTE FOUND TOAST */}
 <AnimatePresence>
-  {showRouteToast && (
+   {showRouteToast && (
     <motion.div
       className="fixed z-[130] pointer-events-none"
       style={{

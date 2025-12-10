@@ -10,7 +10,8 @@ const ADMIN_EMAILS = [
 ];
 
 export default function AdminDashboard({ user, onLogout }) {
-  const [view, setView] = useState(null); // null | 'edit' | 'user'
+  const [view, setView] = useState(null);
+  const [viewKey, setViewKey] = useState(0); // Add this state
 
   if (!user || !ADMIN_EMAILS.includes(user.email)) {
     return (
@@ -24,12 +25,21 @@ export default function AdminDashboard({ user, onLogout }) {
     );
   }
 
+  const switchView = (newView) => {
+    setView(null); // Clear view first
+    setTimeout(() => {
+      setViewKey(prev => prev + 1); // Force new key
+      setView(newView);
+    }, 100); // Increased delay to ensure cleanup
+  };
+
   // View is unmounted/remounted on state change, forcing fresh data loads
   if (view === "edit") {
     return (
       <RouteEditor
+        key={`route-editor-${viewKey}`}
         isAdmin
-        onGoToUserView={() => setView("user")}
+        onGoToUserView={() => switchView("user")}
       />
     );
   }
@@ -37,10 +47,11 @@ export default function AdminDashboard({ user, onLogout }) {
   if (view === "user") {
     return (
       <MapRoutePage
+        key={`map-route-page-${viewKey}`}
         user={user}
         isAdmin
         onBackToSplash={onLogout}
-        onGoToEditRoutes={() => setView("edit")}
+        onGoToEditRoutes={() => switchView("edit")}
       />
     );
   }
@@ -53,13 +64,13 @@ export default function AdminDashboard({ user, onLogout }) {
         <p className="mb-6">You are logged in as <span className="font-mono">{user.email}</span></p>
         <div className="flex gap-4 justify-center">
           <button
-            onClick={() => setView("edit")}
+            onClick={() => switchView("edit")}
             className="px-5 py-3 rounded-lg bg-amber-400 text-black font-semibold hover:bg-amber-300"
           >
             Edit Routes
           </button>
           <button
-            onClick={() => setView("user")}
+            onClick={() => switchView("user")}
             className="px-5 py-3 rounded-lg bg-black text-white font-semibold hover:bg-gray-800"
           >
             User View

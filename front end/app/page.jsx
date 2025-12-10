@@ -117,12 +117,24 @@ export default function HomePage() {
     if (isAdmin) {
       return (
         <AdminDashboard
+          key="admin-dashboard"
           user={currentUser}
           onLogout={handleBackToSplash}
         />
       );
     }
-    return <MapRoutePage user={currentUser} onBackToSplash={handleBackToSplash} />;
+    return (
+      <MapRoutePage 
+        key="map-route-page"
+        user={currentUser} 
+        onBackToSplash={handleBackToSplash} 
+        isAdmin={isAdmin}
+        onGoToEditRoutes={() => {
+          // Switch to admin view
+          setView('admin');
+        }}
+      />
+    );
   }
 
   return (

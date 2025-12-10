@@ -13,6 +13,7 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
   const [addSegmentMode, setAddSegmentMode] = useState(false);
   const [drawingCoords, setDrawingCoords] = useState([]);
   const [drawingMarkers, setDrawingMarkers] = useState([]);
+  const [mapContainerId] = useState(() => `route-editor-map-${Date.now()}-${Math.random()}`);
 
   const mapRef = useRef(null);
   const leafletRef = useRef(null);
@@ -28,18 +29,24 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
 
   const loadGeojson = async () => {
     try {
-      // Try to load edits from Firebase first
+      console.log('RouteEditor: Loading GeoJSON data...');
+      // Try to load edits from database first
       const editsResult = await getGeojsonEdits('campusEdits');
+      console.log('RouteEditor: Database result:', editsResult);
+      
       if (editsResult.success && editsResult.geojson) {
+        console.log('RouteEditor: Loaded GeoJSON edits from database');
         setGeojson(editsResult.geojson);
         return;
       }
 
       // Fall back to original
+      console.log('RouteEditor: No edits found, loading original campus.geojson');
       const res = await fetch("/OSM-data/campus.geojson");
       const data = await res.json();
       setGeojson(data);
     } catch (err) {
+      console.error('RouteEditor: Failed to load geojson:', err);
       setStatus("Failed to load campus.geojson");
     }
   };
@@ -53,19 +60,28 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
     let L = null;
 
     const init = async () => {
+      // Create a completely fresh div element
+      const existingContainer = document.getElementById(mapContainerId);
+      if (existingContainer) {
+        existingContainer.remove();
+      }
+      
+      const newContainer = document.createElement('div');
+      newContainer.id = mapContainerId;
+      newContainer.className = 'absolute inset-0';
+      
+      if (mapContainerRef.current) {
+        mapContainerRef.current.innerHTML = '';
+        mapContainerRef.current.appendChild(newContainer);
+      }
+
       if (!geojson) return;
-      if (mapRef.current) return;
 
       try {
         L = (await import("leaflet")).default;
         leafletRef.current = L;
 
-        if (mapContainerRef.current && mapContainerRef.current._leaflet_id) {
-          try { mapRef.current?.remove(); } catch {}
-          mapContainerRef.current._leaflet_id = undefined;
-        }
-
-        const map = L.map(mapContainerRef.current, { zoomControl: false });
+        const map = L.map(newContainer, { zoomControl: false });
         mapRef.current = map;
 
         // Ensure the map has a center and zoom before anything else
@@ -83,7 +99,6 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
           try { map.invalidateSize(); } catch {}
         }, 50);
 
-        // Fit only once, and only if bounds can be computed from geojson
         if (!fittedOnceRef.current) {
           const bounds = L.latLngBounds([]);
           (geojson.features || []).forEach(feat => {
@@ -98,7 +113,7 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
           });
           if (bounds.isValid()) {
             map.fitBounds(bounds.pad(0.05));
-          } // else keep DEFAULT_CENTER/DEFAULT_ZOOM
+          }
           fittedOnceRef.current = true;
         }
 
@@ -122,10 +137,9 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
           }).addTo(group);
 
           poly.on("click", () => {
-            if (editMode) return; // keep current selection during edit
+            if (editMode) return;
             setSelectedIdx(i);
             selectedLayerRef.current = poly;
-            // highlight selection, leave it glowing
             group.eachLayer(layer => {
               if (layer.setStyle) {
                 layer.setStyle({ color: "#2563eb", weight: 4, opacity: 0.7 });
@@ -145,35 +159,30 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
     init();
 
     return () => {
-      try {
-        vertexMarkersRef.current.forEach(m => mapRef.current?.removeLayer(m));
-        vertexMarkersRef.current = [];
-        if (drawnLayerRef.current && mapRef.current) {
-          mapRef.current.removeLayer(drawnLayerRef.current);
-          drawnLayerRef.current = null;
-        }
-        if (mapRef.current) {
-          mapRef.current.off();
+      if (mapRef.current) {
+        try {
           mapRef.current.remove();
-          mapRef.current = null;
-        }
-        if (mapContainerRef.current && mapContainerRef.current._leaflet_id) {
-          mapContainerRef.current._leaflet_id = undefined;
-        }
-        selectedLayerRef.current = null;
-        fittedOnceRef.current = false;
-      } catch {}
+        } catch {}
+        mapRef.current = null;
+      }
+      // Remove the container entirely
+      const container = document.getElementById(mapContainerId);
+      if (container) {
+        container.remove();
+      }
     };
-  }, [geojson]); // removed editMode from deps
+  }, [geojson, mapContainerId]);
 
-  // Helper: Save GeoJSON edits to campusEdits.geojson
+  // Helper: Save GeoJSON edits to campusEdits
   const saveEditsToFile = async (updatedGeojson) => {
     setStatus("Saving...");
     try {
-      await saveGeojsonEdits(updatedGeojson, 'campusEdits.geojson');
+      console.log('RouteEditor: Saving edits to database...');
+      const result = await saveGeojsonEdits(updatedGeojson, 'campusEdits');
+      console.log('RouteEditor: Save result:', result);
       setStatus("Route edits saved!");
     } catch (err) {
-      console.error("Error saving edits:", err);
+      console.error("RouteEditor: Error saving edits:", err);
       setStatus("Error saving edits.");
     }
   };

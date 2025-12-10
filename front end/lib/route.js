@@ -3,14 +3,12 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
-// Initialize Firebase Admin SDK
 let adminDb;
 
 function getAdminDb() {
   if (adminDb) return adminDb;
   
   try {
-    // Check if app already initialized
     if (getApps().length === 0) {
       const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY || '{}');
       initializeApp({
@@ -27,24 +25,22 @@ function getAdminDb() {
 
 export async function saveGeojsonEdits(geojson, docName = 'campusEdits') {
   try {
-    if (!geojson) {
-      throw new Error('Missing geojson');
-    }
+    if (!geojson) throw new Error('Missing geojson');
 
     const db = getAdminDb();
     const docRef = db.collection('mapData').doc(docName);
     
-    console.log(`Writing GeoJSON edits to Firestore: mapData/${docName}`);
+    console.log(`Server: Saving GeoJSON to document: ${docName}`);
     await docRef.set({
-      geojson: geojson,
+      geojsonData: JSON.stringify(geojson),
       updatedAt: new Date(),
       version: 1
     });
-    console.log(`Successfully wrote GeoJSON to Firestore`);
 
-    return { success: true, message: 'GeoJSON edits saved to database successfully' };
+    console.log('Server: Successfully saved GeoJSON');
+    return { success: true, message: 'GeoJSON edits saved successfully' };
   } catch (error) {
-    console.error('Error saving GeoJSON edits:', error);
+    console.error('Server: Error saving GeoJSON:', error);
     throw error;
   }
 }
@@ -55,15 +51,22 @@ export async function getGeojsonEdits(docName = 'campusEdits') {
     const docRef = db.collection('mapData').doc(docName);
     const docSnap = await docRef.get();
     
+    console.log(`Server: Retrieving GeoJSON from document: ${docName}`);
+    console.log(`Server: Document exists: ${docSnap.exists}`);
+    
     if (docSnap.exists) {
-      console.log(`Retrieved GeoJSON edits from Firestore`);
-      return { success: true, geojson: docSnap.data().geojson };
+      const data = docSnap.data();
+      console.log('Server: Retrieved GeoJSON from database');
+      return { 
+        success: true, 
+        geojson: JSON.parse(data.geojsonData) 
+      };
     } else {
-      console.log('No edits document found, will use original');
+      console.log('Server: No edits found, will use original');
       return { success: false, geojson: null };
     }
   } catch (error) {
-    console.error('Error retrieving GeoJSON edits:', error);
+    console.error('Server: Error retrieving GeoJSON:', error);
     return { success: false, geojson: null };
   }
 }
@@ -73,18 +76,12 @@ export async function deleteGeojsonEdits(docName = 'campusEdits') {
     const db = getAdminDb();
     const docRef = db.collection('mapData').doc(docName);
     
-    console.log(`Deleting GeoJSON edits from Firestore: mapData/${docName}`);
     await docRef.delete();
-    console.log(`Successfully deleted GeoJSON from Firestore`);
 
-    return { success: true, message: 'GeoJSON edits deleted from database successfully' };
+    console.log('Successfully deleted GeoJSON');
+    return { success: true, message: 'GeoJSON deleted successfully' };
   } catch (error) {
-    console.error('Error deleting GeoJSON edits:', error);
-    // Document doesn't exist is not an error
-    if (error.code === 'not-found') {
-      console.log('Edits document does not exist, nothing to delete');
-      return { success: true, message: 'No edits to delete' };
-    }
-    throw error;
+    console.error('Error deleting GeoJSON:', error);
+    return { success: true, message: 'No edits to delete' };
   }
 }
