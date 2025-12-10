@@ -69,16 +69,22 @@ Although there are existing paper maps of nonstandard routes, procured by the De
 *These documents show how the system works at a high level. The most comprehensive of all documentation, as well as your first source for questions, is the SRS document. For more specific questions regarding one specific component of this project, additional resources can be found below the SRS.* 
 
 SRS Document: **Will upload when final SRS is finalized**
+
 System Design Document: [HERE](./assets/System%20Design%20Document.pdf)
+
 User Interface Design Document: [HERE](./assets/User%20Interface%20Design%20Document.pdf)
+
 Testing Document: [HERE](./assets/Software%20Testing%20Document.pdf)
 
 ### 🚀 Sprint Progress
 *These Documents show less of the final product's functionality, and instead are a testament of how Fetch My Route! was created from the ground up. Therefore, view these documents not as "how to's" or sources of information, but instead as monthly updates which improve over time.*
 
 Project Proposal Document: [HERE](./assets/Project%20Proposal%20Document.pdf)
+
 Sprint Report 1: [HERE](./assets/Sprint%201%20Report.pdf)
+
 Sprint Report 2: [HERE](./assets/Sprint%202%20Report.pdf)
+
 Sprint Report 3: **Will upload at the conclusion of Sprint 3**
 
 
@@ -146,7 +152,7 @@ Then, in a local broswer, navigate to port 3000 on localhost. You should see the
 Due to the limited time circumstances faced in developing this project, this project was deployed using Firebase's website deployment feature. For a more permanent home, it is advices that a domian is officially purchased and hosted through a more reputable source, such as CloudFlare. With that being said, below are the instructions to get it working on firebase, assuming you have the necessary database files (which do not come with this project as that violates the UMBC Privacy Policy). These steps should be done after cloning this repo.
 
 #### 1️⃣ Install all required dependencies
-See [How to run locally]() for these instructions
+See [How to run locally](#how-to-run-locally) for these instructions
 
 #### 2️⃣ Build the Project
 After configuring npm for this project, you can perform a full build by running the command
@@ -248,10 +254,14 @@ While the core functionality of the system is intact, there are still a number o
 
 ## 👥 Credits
 ##### Meet the Team:
-Aidan Denham, @pairOfPants 
+Aidan Denham, [@pairOfPants](https://github.com/pairOfPants)
+
 Alex Marbut, @
+
 Celestine Sumah, @ 
+
 Ethan Michalik @
+
 
 
 These four developers have put in exceptional effort to complete this project in a timely manner. The advising UMBC professor on this project, Dr. Samit Shivadekar, may or may not have said 
