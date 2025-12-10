@@ -92,20 +92,35 @@ In order to get this project set up and working on your device, there are a few 
 There exists a file in this repository called dependencies.txt, which has all dependency information listed there. For convenience, I will also show the file contents below:
 
 ├── @emnapi/runtime@1.7.1 extraneous
+
 ├── autoprefixer@10.4.21
+
 ├── eslint-config-next@15.5.6
+
 ├── eslint@8.57.1
+
 ├── firebase@12.6.0
+
 ├── framer-motion@11.18.2
+
 ├── leaflet-geometryutil@0.10.3
+
 ├── leaflet-polylinedecorator@1.6.0
+
 ├── leaflet@1.9.4
+
 ├── lucide-react@0.452.0
+
 ├── next@15.5.7
+
 ├── postcss@8.5.6
+
 ├── react-dom@18.3.1
+
 ├── react@18.3.1
+
 └── tailwindcss@3.4.18
+
 
 Similar to any npm project, there are two main commands to install all of these dependencies automatically. The first, is 
 ```js
