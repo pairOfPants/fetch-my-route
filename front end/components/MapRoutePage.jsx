@@ -84,6 +84,8 @@ const [editingRoute, setEditingRoute] = useState(null);
   const endMarkerRef = useRef(null);
   const routeLineRef = useRef(null);
   const userMarkerRef = useRef(null);
+  const userPulseRef = useRef(null);
+  const pulseTimerRef = useRef(null);
   const watchIdRef = useRef(null);
   const startKeyRef = useRef(null);
   const endKeyRef = useRef(null);
@@ -96,6 +98,7 @@ const [editingRoute, setEditingRoute] = useState(null);
   const [isTracking, setIsTracking] = useState(false);
   const [followUser, setFollowUser] = useState(true);
   const [gpsInfo, setGpsInfo] = useState({ accuracy: null, speed: null });
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
   const brand = useMemo(
     () => ({ gold: "#FFCB05", black: "#000000", ink: "#111111" }),
@@ -110,6 +113,20 @@ const [editingRoute, setEditingRoute] = useState(null);
     const prefs = JSON.parse(localStorage.getItem("letsleave:prefs") || "{}");
     if (typeof prefs.highContrast === "boolean") setHighContrast(prefs.highContrast);
     if (typeof prefs.textScale === "number") setTextScale(prefs.textScale);
+  }, []);
+  // Detect reduced motion preference
+  useEffect(() => {
+    try {
+      const mq = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+      if (mq) {
+        setPrefersReducedMotion(!!mq.matches);
+        const handler = (e) => setPrefersReducedMotion(!!e.matches);
+        mq.addEventListener ? mq.addEventListener('change', handler) : mq.addListener(handler);
+        return () => {
+          mq.removeEventListener ? mq.removeEventListener('change', handler) : mq.removeListener(handler);
+        };
+      }
+    } catch {}
   }, []);
   useEffect(() => {
     const prefs = JSON.parse(localStorage.getItem("letsleave:prefs") || "{}");
@@ -397,6 +414,15 @@ useEffect(() => {
     try { if (watchIdRef.current != null && navigator.geolocation?.clearWatch) navigator.geolocation.clearWatch(watchIdRef.current); } catch {}
     watchIdRef.current = null;
     setIsTracking(false);
+    // Stop pulsing and remove pulse layer
+    if (pulseTimerRef.current) {
+      clearInterval(pulseTimerRef.current);
+      pulseTimerRef.current = null;
+    }
+    if (userPulseRef.current && mapRef.current) {
+      try { mapRef.current.removeLayer(userPulseRef.current); } catch {}
+    }
+    userPulseRef.current = null;
 
     startKeyRef.current = null;
     endKeyRef.current = null;
@@ -1046,15 +1072,51 @@ const handleSuggestionSelect = (which, suggestion) => {
   const placeUserMarker = (lat, lng) => {
     const L = leafletRef.current;
     if (!L || !mapRef.current) return;
-    if (userMarkerRef.current) mapRef.current.removeLayer(userMarkerRef.current);
-    userMarkerRef.current = L.circleMarker([lat, lng], {
-      radius: 8,
-      fillColor: "#3b82f6",
-      color: "#1e3a8a",
-      weight: 2,
-      opacity: 0.9,
-      fillOpacity: 0.6,
-    }).addTo(mapRef.current);
+    // Create or update the base user marker (solid dot)
+    if (!userMarkerRef.current) {
+      userMarkerRef.current = L.circleMarker([lat, lng], {
+        radius: 8,
+        fillColor: "#3b82f6",
+        color: "#1e3a8a",
+        weight: 2,
+        opacity: 0.9,
+        fillOpacity: 0.7,
+      }).addTo(mapRef.current);
+    } else {
+      try { userMarkerRef.current.setLatLng([lat, lng]); } catch {}
+    }
+
+    // Create or update the pulsing halo
+    if (!prefersReducedMotion) {
+      if (!userPulseRef.current) {
+        userPulseRef.current = L.circleMarker([lat, lng], {
+          radius: 12,
+          fillColor: "#3b82f6",
+          color: "#3b82f6",
+          weight: 0,
+          opacity: 0,
+          fillOpacity: 0.25,
+        }).addTo(mapRef.current);
+      } else {
+        try { userPulseRef.current.setLatLng([lat, lng]); } catch {}
+      }
+      // Start pulse animation if not running
+      if (!pulseTimerRef.current) {
+        const durationMs = 1200;
+        const stepMs = 40;
+        let t = 0;
+        pulseTimerRef.current = setInterval(() => {
+          if (!userPulseRef.current) return;
+          t = (t + stepMs) % durationMs;
+          const phase = t / durationMs; // 0..1
+          const radius = 12 + phase * 20; // 12 -> 32
+          const fillOpacity = 0.30 * (1 - phase); // 0.30 -> 0.0
+          try {
+            userPulseRef.current.setStyle({ radius, fillOpacity });
+          } catch {}
+        }, stepMs);
+      }
+    }
   };
 
   // Compute total length of a polyline in meters using Leaflet distance
@@ -1125,6 +1187,15 @@ const handleSuggestionSelect = (which, suggestion) => {
     } catch {}
     watchIdRef.current = null;
     setIsTracking(false);
+    // Stop pulse
+    if (pulseTimerRef.current) {
+      clearInterval(pulseTimerRef.current);
+      pulseTimerRef.current = null;
+    }
+    if (userPulseRef.current && mapRef.current) {
+      try { mapRef.current.removeLayer(userPulseRef.current); } catch {}
+    }
+    userPulseRef.current = null;
   };
 
   const startTracking = () => {
@@ -1187,6 +1258,15 @@ const handleSuggestionSelect = (which, suggestion) => {
           navigator.geolocation.clearWatch(watchIdRef.current);
         }
       } catch {}
+      // Cleanup pulse on unmount
+      if (pulseTimerRef.current) {
+        clearInterval(pulseTimerRef.current);
+        pulseTimerRef.current = null;
+      }
+      if (userPulseRef.current && mapRef.current) {
+        try { mapRef.current.removeLayer(userPulseRef.current); } catch {}
+      }
+      userPulseRef.current = null;
     };
   }, []);
 
