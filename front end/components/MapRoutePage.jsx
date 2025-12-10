@@ -198,14 +198,7 @@ useEffect(() => {
     window.addEventListener("touchend", stop);
   };
 
-  const instructionCards = [
-    { id: 1, text: "Turn on Map Click to drop Start then Destination. We snap to the nearest walkable path." },
-    { id: 2, text: "Or type locations and press Route. We geocode with OpenStreetMap and snap to campus paths." },
-    { id: 3, text: "Use Clear to reset markers and the blue line. Drag the handle to resize map vs. details." },
-    { id: 4, text: "Saved routes simply fill the start/destination fields—press Route to draw them." },
-    { id: 5, text: "Accessibility: toggle high contrast or bump text size in the footer at any time." },
-    { id: 6, text: "Routing happens locally with campus data bundled in the app; no external API keys required." },
-  ];
+  const instructionCards = [];
 
 
   // close with ESC (both saved routes + confirm)
