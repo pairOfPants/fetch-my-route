@@ -42,25 +42,64 @@ Although there are existing paper maps of nonstandard routes, procured by the De
 ### High Level Documentation
 *These documents show how the system works at a high level. The most comprehensive of all documentation, as well as your first source for questions, is the SRS document. For more specific questions regarding one specific component of this project, additional resources can be found below the SRS.* 
 
-SRS Document: 
-System Design Document:
-User Interface Design Document: 
-Testing Document:
+SRS Document: **Will upload when final SRS is finalized**
+System Design Document: [HERE](./assets/System%20Design%20Document.pdf)
+User Interface Design Document: [HERE](./assets/User%20Interface%20Design%20Document.pdf)
+Testing Document: [HERE](./assets/Software%20Testing%20Document.pdf)
 
 ### Sprint Progress
 *These Documents show less of the final product's functionality, and instead are a testament of how Fetch My Route! was created from the ground up. Therefore, view these documents not as "how to's" or sources of information, but instead as monthly updates which improve over time.*
 
-Project Proposal Document:
-Sprint Report 1:
-Sprint Report 2:
-Sprint Report 3:
+Project Proposal Document: [HERE](./assets/Project%20Proposal%20Document.pdf)
+Sprint Report 1: [HERE](./assets/Sprint%201%20Report.pdf)
+Sprint Report 2: [HERE](./assets/Sprint%202%20Report.pdf)
+Sprint Report 3: **Will upload at the conclusion of Sprint 3**
 
 
 
 ## How to Run the Project
 Fetch my Route features 2 main methods of running the project. One can either run it locally or deploy the website to the internet. See below for appropriate instructions depending on use case.
 ### How to run locally
-#### Dependency List
+In order to get this project set up and working on your device, there are a few steps that must be taken. Given more time to develop this project, it is a goal to automate this process, however no such automation exists yet for this project. With that being said, follow these steps and you should be fine. 
+#### 1. Install all required depencencies
+##### Dependency List
+There exists a file in this repository called dependencies.txt, which has all dependency information listed there. For convenience, I will also show the file contents below:
+
+├── @emnapi/runtime@1.7.1 extraneous
+├── autoprefixer@10.4.21
+├── eslint-config-next@15.5.6
+├── eslint@8.57.1
+├── firebase@12.6.0
+├── framer-motion@11.18.2
+├── leaflet-geometryutil@0.10.3
+├── leaflet-polylinedecorator@1.6.0
+├── leaflet@1.9.4
+├── lucide-react@0.452.0
+├── next@15.5.7
+├── postcss@8.5.6
+├── react-dom@18.3.1
+├── react@18.3.1
+└── tailwindcss@3.4.18
+
+Similar to any npm project, there are two main commands to install all of these dependencies automatically. The first, is 
+```js
+npm install
+```
+
+and this command reads package.json and installs everything listed. This is the standard way and what you should use. However, if you want to preserve the exact versions of each dependency, the proper command to use is 
+```js
+npm ci
+```
+This uses package-lock.json to install exact versions from last successful install. More reliable than npm install for reproducibility.
+
+#### 2. Running the project
+Once all dependencies are installed, spinning up the local server is as simple as running the command:
+```js
+npm run dev
+```
+Then, in a local broswer, navigate to port 3000 on localhost. You should see the website.
+
+**Please note that the root directory for all npm commands is located at ```./front\ end/``` so running the above commands outside that directory will result in errors.**
 
 ### How to deploy
 Due to the limited time circumstances faced in developing this project, this project was deployed using Firebase's website deployment feature. For a more permanent home, it is advices that a domian is officially purchased and hosted through a more reputable source, such as CloudFlare.
