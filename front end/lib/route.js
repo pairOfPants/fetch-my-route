@@ -36,7 +36,7 @@ export async function saveGeojsonEdits(geojson, docName = 'campusEdits') {
     
     console.log(`Writing GeoJSON edits to Firestore: mapData/${docName}`);
     await docRef.set({
-      geojson: geojson,
+      geojsonData: JSON.stringify(geojson), // Serialize to string
       updatedAt: new Date(),
       version: 1
     });
@@ -57,7 +57,11 @@ export async function getGeojsonEdits(docName = 'campusEdits') {
     
     if (docSnap.exists) {
       console.log(`Retrieved GeoJSON edits from Firestore`);
-      return { success: true, geojson: docSnap.data().geojson };
+      const data = docSnap.data();
+      return { 
+        success: true, 
+        geojson: JSON.parse(data.geojsonData) // Parse back to object
+      };
     } else {
       console.log('No edits document found, will use original');
       return { success: false, geojson: null };
