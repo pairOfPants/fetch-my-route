@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState, useEffect } from "react";
+import { getGeojsonEdits } from "@/lib/route";
 import {
   LogOut,
   Bookmark,
@@ -22,13 +23,14 @@ import {
   MousePointerClick,
   Trash2,
   Pencil,
+  Wrench,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
 import { getRoute, isOSRMAvailable, generateBasicInstructions } from "@/lib/osrmClient";
 
-export default function MapRoutePage({ onBackToSplash, user }) {
+export default function MapRoutePage({ onBackToSplash, user, isAdmin = false, onGoToEditRoutes }) {
   const [leftPct, setLeftPct] = useState(50);
   const [activeStep, setActiveStep] = useState(1);
   const [showSavedRoutes, setShowSavedRoutes] = useState(false);
@@ -77,6 +79,7 @@ const [editingRoute, setEditingRoute] = useState(null);
   const mapRef = useRef(null);
   const leafletRef = useRef(null);
   const graphRef = useRef(null);
+  const drawnLayerRef = useRef(null); // Add this line
   const startMarkerRef = useRef(null);
   const endMarkerRef = useRef(null);
   const routeLineRef = useRef(null);
@@ -196,14 +199,7 @@ useEffect(() => {
     window.addEventListener("touchend", stop);
   };
 
-  const instructionCards = [
-    { id: 1, text: "Turn on Map Click to drop Start then Destination. We snap to the nearest walkable path." },
-    { id: 2, text: "Or type locations and press Route. We geocode with OpenStreetMap and snap to campus paths." },
-    { id: 3, text: "Use Clear to reset markers and the blue line. Drag the handle to resize map vs. details." },
-    { id: 4, text: "Saved routes simply fill the start/destination fields—press Route to draw them." },
-    { id: 5, text: "Accessibility: toggle high contrast or bump text size in the footer at any time." },
-    { id: 6, text: "Routing happens locally with campus data bundled in the app; no external API keys required." },
-  ];
+  const instructionCards = [];
 
 
   // close with ESC (both saved routes + confirm)
@@ -235,17 +231,33 @@ useEffect(() => {
     placingRef.current = placing;
   }, [placing]);
 
+  const [mapContainerId] = useState(() => `map-container-${Date.now()}-${Math.random()}`);
+
   useEffect(() => {
     let clickHandler = null;
     let mapInstance = null;
 
     const init = async () => {
-      if (mapRef.current) return; // already initialized
+      // Create a completely fresh div element
+      const existingContainer = document.getElementById(mapContainerId);
+      if (existingContainer) {
+        existingContainer.remove();
+      }
+      
+      const newContainer = document.createElement('div');
+      newContainer.id = mapContainerId;
+      newContainer.className = 'absolute inset-0';
+      
+      if (mapContainerRef.current) {
+        mapContainerRef.current.innerHTML = '';
+        mapContainerRef.current.appendChild(newContainer);
+      }
+
       try {
         const L = (await import("leaflet")).default;
         leafletRef.current = L;
 
-        mapInstance = L.map(mapContainerRef.current, { zoomControl: false });
+        mapInstance = L.map(newContainer, { zoomControl: false });
         mapRef.current = mapInstance;
 
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -255,14 +267,38 @@ useEffect(() => {
         }).addTo(mapInstance);
         L.control.zoom({ position: "topleft" }).addTo(mapInstance);
 
-        const res = await fetch("/OSM-data/campus.geojson");
-        const data = await res.json();
-        const graph = buildGraphFromGeoJSON(L, data);
+        // Try to load edits from database first
+        let geojsonData = null;
+        try {
+          console.log('MapRoutePage: Loading GeoJSON data...');
+          const editsResult = await getGeojsonEdits('campusEdits');
+          console.log('MapRoutePage: Database result:', editsResult);
+          
+          if (editsResult.success && editsResult.geojson) {
+            console.log('MapRoutePage: Loaded GeoJSON edits from database');
+            geojsonData = editsResult.geojson;
+          }
+        } catch (error) {
+          console.error('MapRoutePage: Failed to get edits from database:', error);
+        }
+
+        // If no edits, load original
+        if (!geojsonData) {
+          console.log('MapRoutePage: No edits found, loading original campus.geojson');
+          const res = await fetch("/OSM-data/campus.geojson");
+          geojsonData = await res.json();
+        }
+
+        const graph = buildGraphFromGeoJSON(L, geojsonData);
         graphRef.current = graph;
+
+        // Create initial layer group
+        const group = L.layerGroup().addTo(mapInstance);
+        drawnLayerRef.current = group;
 
         L.geoJSON(graph.displayFeatures, {
           style: { color: "#94a3b8", weight: 2, opacity: 0.6 },
-        }).addTo(mapInstance);
+        }).addTo(group);
 
         if (graph.bounds && graph.bounds.isValid()) {
           console.log("Fitting map to campus bounds", graph.bounds);
@@ -285,14 +321,19 @@ useEffect(() => {
     init();
 
     return () => {
-      if (mapInstance && clickHandler) mapInstance.off("click", clickHandler);
-      if (mapInstance) mapInstance.remove();
-      mapRef.current = null;
-      if (mapContainerRef.current && mapContainerRef.current._leaflet_id) {
-        mapContainerRef.current._leaflet_id = undefined;
+      if (mapInstance && clickHandler) {
+        try {
+          mapInstance.off("click", clickHandler);
+          mapInstance.remove();
+        } catch {}
+      }
+      // Remove the container entirely
+      const container = document.getElementById(mapContainerId);
+      if (container) {
+        container.remove();
       }
     };
-  }, []);
+  }, [mapContainerId]);
 
   const pillPosStyle = useMemo(() => {
     if (leftPct <= 6) return { left: 16, transform: "translateY(-50%)" };
@@ -951,7 +992,7 @@ const handleSuggestionSelect = (which, suggestion) => {
     const existing = savedRoutes.find((r) => r.start === pendingRoute.start && r.dest === pendingRoute.dest);
     const listIsFull = savedRoutes.length >= 5 && !existing;
     if (listIsFull) {
-      setStatusMessage("You can only keep 5 saved routes. Delete one before saving another.");
+      setStatusMessage("You can only keep 5 saved routes. Delete one before saving.");
       return;
     }
 
@@ -1181,6 +1222,18 @@ const handleSuggestionSelect = (which, suggestion) => {
               <BookmarkPlus className="h-4 w-4" />
               Save route
             </button>
+            {/* Admin-only: go to Route Editor */}
+            {isAdmin && typeof onGoToEditRoutes === 'function' && (
+              <button
+                onClick={onGoToEditRoutes}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl font-semibold border"
+                style={{ background: brand.gold, color: "#111", borderColor: "#2b2b2b" }}
+                title="Open route editor (admin)"
+              >
+                <Wrench className="h-4 w-4" />
+                Edit Routes
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2 ml-auto md:ml-4">
@@ -1352,7 +1405,7 @@ const handleSuggestionSelect = (which, suggestion) => {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-6">
             <button onClick={() => setOpen("how")} className="hover:underline inline-flex items-center gap-2">
-              <BookOpenText className="h-4 w-4" /> How it works
+              <BookOpenText className="h-4 w-4" /> How to use
             </button>
             <button onClick={() => setOpen("a11y")} className="hover:underline inline-flex items-center gap-2">
               <A11yIcon className="h-4 w-4" /> Accessibility
@@ -1659,15 +1712,14 @@ const handleSuggestionSelect = (which, suggestion) => {
       <div className="flex justify-end gap-2 mt-5">
         <button onClick={()=>{setShowNewRouteModal(false); setEditingRoute(null);}} className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15">Cancel</button>
         <button onClick={saveNewNamedRoute} className="px-3 py-2 rounded-lg font-semibold" style={{background:"#FFCB05", color:"#111"}}>{editingRoute ? "Save changes" : "Save route"}</button>
-      </div>
-    </motion.div>
+      </div>    </motion.div>
   </>
 )}
 </AnimatePresence>
 
 {/* ROUTE FOUND TOAST */}
 <AnimatePresence>
-  {showRouteToast && (
+   {showRouteToast && (
     <motion.div
       className="fixed z-[130] pointer-events-none"
       style={{
@@ -1704,16 +1756,17 @@ const handleSuggestionSelect = (which, suggestion) => {
 {/* BOTTOM BAR MODALS */}
       <AnimatePresence>
         {open === "how" && (
-          <Modal onClose={() => setOpen(null)} title="How it works">
+          <Modal onClose={() => setOpen(null)} title="How to use">
             <ul className="list-disc pl-5 space-y-2">
               <li>Drag the center handle to resize map vs. directions.</li>
               <li>Use ◄ ► on the handle to snap either side closed.</li>
               <li>Enter Start/Destination at the top; saved routes can auto-fill.</li>
-              <li>Adjust text size and contrast for accessibility anytime.</li>
-              <li>
-                <strong>Tip:</strong> Add a <em>room number after a building</em> (e.g., “Engineering 236”)
-                and we’ll route you to the <strong>correct floor</strong> of that building.
-              </li>
+              <li>Use the Map Click button to simply click your start/destination if you do not know the names of the buildings.</li>
+              <li>Click the Save Route button to save your current route for future use. (Note: Does not work on routes using map click.)</li>
+              <li>Go to your Save Routes in order to load previous routes into the search bars.</li>
+              <li>Use the Clear button to clear the current route</li>
+              <li>Use the Locate me button to use your location as the starting point, then hit the Route button.</li>
+              <li>Adjust text size and contrast in Accessibility.</li>
             </ul>
           </Modal>
         )}
