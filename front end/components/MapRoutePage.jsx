@@ -199,14 +199,7 @@ useEffect(() => {
     window.addEventListener("touchend", stop);
   };
 
-  const instructionCards = [
-    { id: 1, text: "Turn on Map Click to drop Start then Destination. We snap to the nearest walkable path." },
-    { id: 2, text: "Or type locations and press Route. We geocode with OpenStreetMap and snap to campus paths." },
-    { id: 3, text: "Use Clear to reset markers and the blue line. Drag the handle to resize map vs. details." },
-    { id: 4, text: "Saved routes simply fill the start/destination fields—press Route to draw them." },
-    { id: 5, text: "Accessibility: toggle high contrast or bump text size in the footer at any time." },
-    { id: 6, text: "Routing happens locally with campus data bundled in the app; no external API keys required." },
-  ];
+  const instructionCards = [];
 
 
   // close with ESC (both saved routes + confirm)
@@ -1383,7 +1376,7 @@ const handleSuggestionSelect = (which, suggestion) => {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-6">
             <button onClick={() => setOpen("how")} className="hover:underline inline-flex items-center gap-2">
-              <BookOpenText className="h-4 w-4" /> How it works
+              <BookOpenText className="h-4 w-4" /> How to use
             </button>
             <button onClick={() => setOpen("a11y")} className="hover:underline inline-flex items-center gap-2">
               <A11yIcon className="h-4 w-4" /> Accessibility
@@ -1734,16 +1727,17 @@ const handleSuggestionSelect = (which, suggestion) => {
 {/* BOTTOM BAR MODALS */}
       <AnimatePresence>
         {open === "how" && (
-          <Modal onClose={() => setOpen(null)} title="How it works">
+          <Modal onClose={() => setOpen(null)} title="How to use">
             <ul className="list-disc pl-5 space-y-2">
               <li>Drag the center handle to resize map vs. directions.</li>
               <li>Use ◄ ► on the handle to snap either side closed.</li>
               <li>Enter Start/Destination at the top; saved routes can auto-fill.</li>
-              <li>Adjust text size and contrast for accessibility anytime.</li>
-              <li>
-                <strong>Tip:</strong> Add a <em>room number after a building</em> (e.g., “Engineering 236”)
-                and we’ll route you to the <strong>correct floor</strong> of that building.
-              </li>
+              <li>Use the Map Click button to simply click your start/destination if you do not know the names of the buildings.</li>
+              <li>Click the Save Route button to save your current route for future use. (Note: Does not work on routes using map click.)</li>
+              <li>Go to your Save Routes in order to load previous routes into the search bars.</li>
+              <li>Use the Clear button to clear the current route</li>
+              <li>Use the Locate me button to use your location as the starting point, then hit the Route button.</li>
+              <li>Adjust text size and contrast in Accessibility.</li>
             </ul>
           </Modal>
         )}
