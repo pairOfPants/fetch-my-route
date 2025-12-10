@@ -1,0 +1,17 @@
+lets-leave-splash@0.0.1 /home/adenh/lets-leave/umbc-gps/front end
+├── @emnapi/runtime@1.7.1 extraneous
+├── autoprefixer@10.4.21
+├── eslint-config-next@15.5.6
+├── eslint@8.57.1
+├── firebase@12.6.0
+├── framer-motion@11.18.2
+├── leaflet-geometryutil@0.10.3
+├── leaflet-polylinedecorator@1.6.0
+├── leaflet@1.9.4
+├── lucide-react@0.452.0
+├── next@15.5.7
+├── postcss@8.5.6
+├── react-dom@18.3.1
+├── react@18.3.1
+└── tailwindcss@3.4.18
+
