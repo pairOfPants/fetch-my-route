@@ -78,6 +78,7 @@ const [editingRoute, setEditingRoute] = useState(null);
   const mapRef = useRef(null);
   const leafletRef = useRef(null);
   const graphRef = useRef(null);
+  const drawnLayerRef = useRef(null); // Add this line
   const startMarkerRef = useRef(null);
   const endMarkerRef = useRef(null);
   const routeLineRef = useRef(null);
@@ -241,7 +242,9 @@ useEffect(() => {
     let mapInstance = null;
 
     const init = async () => {
-      if (mapRef.current) return; // already initialized
+      // Only initialize once per mount
+      if (mapRef.current) return;
+
       try {
         const L = (await import("leaflet")).default;
         leafletRef.current = L;
@@ -256,14 +259,33 @@ useEffect(() => {
         }).addTo(mapInstance);
         L.control.zoom({ position: "topleft" }).addTo(mapInstance);
 
-        const res = await fetch("/OSM-data/campus.geojson");
+        // Try to load edits first, fall back to original
+        let geojsonUrl = "/OSM-data/campus.geojson";
+        try {
+          const editsRes = await fetch("/OSM-data/campusEdits.geojson");
+          if (editsRes.ok) {
+            const editsData = await editsRes.json();
+            // Only use edits if it has features
+            if (editsData.features && editsData.features.length > 0) {
+              geojsonUrl = "/OSM-data/campusEdits.geojson";
+            }
+          }
+        } catch {
+          // Fall back to original if edits check fails
+        }
+
+        const res = await fetch(geojsonUrl);
         const data = await res.json();
         const graph = buildGraphFromGeoJSON(L, data);
         graphRef.current = graph;
 
+        // Create initial layer group
+        const group = L.layerGroup().addTo(mapInstance);
+        drawnLayerRef.current = group;
+
         L.geoJSON(graph.displayFeatures, {
           style: { color: "#94a3b8", weight: 2, opacity: 0.6 },
-        }).addTo(mapInstance);
+        }).addTo(group);
 
         if (graph.bounds && graph.bounds.isValid()) {
           console.log("Fitting map to campus bounds", graph.bounds);
@@ -287,13 +309,8 @@ useEffect(() => {
 
     return () => {
       if (mapInstance && clickHandler) mapInstance.off("click", clickHandler);
-      if (mapInstance) mapInstance.remove();
-      mapRef.current = null;
-      if (mapContainerRef.current && mapContainerRef.current._leaflet_id) {
-        mapContainerRef.current._leaflet_id = undefined;
-      }
     };
-  }, []);
+  }, []); // Initialize only once per mount
 
   const pillPosStyle = useMemo(() => {
     if (leftPct <= 6) return { left: 16, transform: "translateY(-50%)" };
@@ -952,7 +969,7 @@ const handleSuggestionSelect = (which, suggestion) => {
     const existing = savedRoutes.find((r) => r.start === pendingRoute.start && r.dest === pendingRoute.dest);
     const listIsFull = savedRoutes.length >= 5 && !existing;
     if (listIsFull) {
-      setStatusMessage("You can only keep 5 saved routes. Delete one before saving another.");
+      setStatusMessage("You can only keep 5 saved routes. Delete one before saving.");
       return;
     }
 

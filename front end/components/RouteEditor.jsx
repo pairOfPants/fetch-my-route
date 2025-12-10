@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { X, Trash2, Pencil, Navigation } from "lucide-react";
+import { saveGeojsonEdits } from "@/lib/route";
 
 export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
   const [geojson, setGeojson] = useState(null);
@@ -21,11 +22,33 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
   const DEFAULT_ZOOM = 17;
   const mapInteractivityDisabledRef = useRef(false);
 
+  const loadGeojson = async () => {
+    try {
+      // Try to load edits first, fall back to original
+      let geojsonUrl = "/OSM-data/campus.geojson";
+      try {
+        const editsRes = await fetch("/OSM-data/campusEdits.geojson");
+        if (editsRes.ok) {
+          const editsData = await editsRes.json();
+          // Only use edits if it has features
+          if (editsData.features && editsData.features.length > 0) {
+            geojsonUrl = "/OSM-data/campusEdits.geojson";
+          }
+        }
+      } catch {
+        // Fall back to original if edits check fails
+      }
+
+      const res = await fetch(geojsonUrl);
+      const data = await res.json();
+      setGeojson(data);
+    } catch (err) {
+      setStatus("Failed to load campus.geojson");
+    }
+  };
+
   useEffect(() => {
-    fetch("/OSM-data/campus.geojson")
-      .then(r => r.json())
-      .then(setGeojson)
-      .catch(() => setStatus("Failed to load campus.geojson"));
+    loadGeojson();
   }, []);
 
   // Initialize Leaflet map once geojson is ready; do NOT depend on editMode
@@ -146,18 +169,15 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
     };
   }, [geojson]); // removed editMode from deps
 
-  // Helper: Save GeoJSON to server (simple POST, adjust as needed)
-  const saveGeojson = async (newGeojson) => {
+  // Helper: Save GeoJSON edits to campusEdits.geojson
+  const saveEditsToFile = async (updatedGeojson) => {
     setStatus("Saving...");
     try {
-      await fetch("/api/save-geojson", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newGeojson),
-      });
-      setStatus("Saved!");
-    } catch {
-      setStatus("Failed to save.");
+      await saveGeojsonEdits(updatedGeojson, 'campusEdits.geojson');
+      setStatus("Route edits saved!");
+    } catch (err) {
+      console.error("Error saving edits:", err);
+      setStatus("Error saving edits.");
     }
   };
 
@@ -170,8 +190,8 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
     setSelectedIdx(null);
     selectedLayerRef.current = null;
     setStatus("Segment deleted.");
-    saveGeojson(newGeojson);
-    redrawAll(false); // don't refit or change view
+    saveEditsToFile(newGeojson); // CHANGED: use saveEditsToFile
+    redrawAll(false);
   };
 
   // Helper: update the highlighted polyline's geometry from editCoords
@@ -354,25 +374,56 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
     const newGeojson = { ...geojson, features: newFeatures };
     setGeojson(newGeojson);
 
-    // Exit edit mode and clean up markers
     setEditMode(false);
     setEditCoords([]);
     vertexMarkersRef.current.forEach(m => mapRef.current?.removeLayer(m));
     vertexMarkersRef.current = [];
 
-    // Keep selection highlighted
     if (selectedLayerRef.current && selectedLayerRef.current.setStyle) {
       selectedLayerRef.current.setStyle({ color: "#FFCB05", weight: 8, opacity: 1 });
     }
 
-    // Re-enable map interactivity
     enableMapInteractivity();
 
     setStatus("Segment updated.");
-    saveGeojson(newGeojson);
-
-    // Redraw without refitting or resetting view, and preserve highlight
+    saveEditsToFile(newGeojson); // CHANGED: use saveEditsToFile
     redrawAll(true);
+  };
+
+  const handleResetMap = () => {
+    // Clear all state
+    setSelectedIdx(null);
+    setEditMode(false);
+    setEditCoords([]);
+    selectedLayerRef.current = null;
+    fittedOnceRef.current = false;
+    
+    // Remove map
+    if (mapRef.current) {
+      try { mapRef.current.off(); mapRef.current.remove(); } catch {}
+      mapRef.current = null;
+    }
+    if (mapContainerRef.current && mapContainerRef.current._leaflet_id) {
+      mapContainerRef.current._leaflet_id = undefined;
+    }
+    if (drawnLayerRef.current) {
+      drawnLayerRef.current = null;
+    }
+    vertexMarkersRef.current = [];
+    
+    // Reload original GeoJSON (not edits)
+    const loadOriginal = async () => {
+      try {
+        const res = await fetch("/OSM-data/campus.geojson");
+        const data = await res.json();
+        setGeojson(data);
+        setStatus("Map reset to original data.");
+      } catch (err) {
+        setStatus("Failed to reset map.");
+      }
+    };
+    
+    loadOriginal();
   };
 
   return (
@@ -402,7 +453,7 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
               </button>
             )}
             <button
-              onClick={() => window.location.reload()}
+              onClick={handleResetMap}
               className="px-3 py-1 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
               title="Reset editor"
             >

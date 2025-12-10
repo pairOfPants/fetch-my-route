@@ -10,8 +10,7 @@ const ADMIN_EMAILS = [
 ];
 
 export default function AdminDashboard({ user, onLogout }) {
-  const [view, setView] = useState(null);
-  const [viewKey, setViewKey] = useState(Date.now());
+  const [view, setView] = useState(null); // null | 'edit' | 'user'
 
   if (!user || !ADMIN_EMAILS.includes(user.email)) {
     return (
@@ -25,19 +24,28 @@ export default function AdminDashboard({ user, onLogout }) {
     );
   }
 
-  // When switching views, force a remount by updating the key
-  const handleSwitchView = (newView) => {
-    setView(newView);
-    setViewKey(Date.now());
-  };
-
+  // View is unmounted/remounted on state change, forcing fresh data loads
   if (view === "edit") {
-    return <RouteEditor key={viewKey} />;
-  }
-  if (view === "user") {
-    return <MapRoutePage key={viewKey} user={user} onBackToSplash={onLogout} />;
+    return (
+      <RouteEditor
+        isAdmin
+        onGoToUserView={() => setView("user")}
+      />
+    );
   }
 
+  if (view === "user") {
+    return (
+      <MapRoutePage
+        user={user}
+        isAdmin
+        onBackToSplash={onLogout}
+        onGoToEditRoutes={() => setView("edit")}
+      />
+    );
+  }
+
+  // Landing screen
   return (
     <div className="h-screen w-screen flex items-center justify-center bg-gray-100">
       <div className="bg-white rounded-xl shadow-lg p-8 text-center">
@@ -45,13 +53,13 @@ export default function AdminDashboard({ user, onLogout }) {
         <p className="mb-6">You are logged in as <span className="font-mono">{user.email}</span></p>
         <div className="flex gap-4 justify-center">
           <button
-            onClick={() => handleSwitchView("edit")}
+            onClick={() => setView("edit")}
             className="px-5 py-3 rounded-lg bg-amber-400 text-black font-semibold hover:bg-amber-300"
           >
             Edit Routes
           </button>
           <button
-            onClick={() => handleSwitchView("user")}
+            onClick={() => setView("user")}
             className="px-5 py-3 rounded-lg bg-black text-white font-semibold hover:bg-gray-800"
           >
             User View
