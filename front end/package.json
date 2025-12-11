@@ -11,6 +11,12 @@
   },
   "dependencies": {
     "firebase": "^12.6.0",
+<<<<<<< Updated upstream
+=======
+    "firebase-admin": "^13.6.0",
+    "firebase-frameworks": "^0.4.2",
+    "firebase-functions": "^7.0.1",
+>>>>>>> Stashed changes
     "framer-motion": "^11.0.0",
     "leaflet": "^1.9.4",
     "leaflet-geometryutil": "^0.10.3",

@@ -9,6 +9,15 @@ import { auth, googleProvider } from '@/lib/firebaseClient'
 const NON_UMBC_ERROR_MESSAGE =
   'Retriever Alert 🐾 This app is for UMBC accounts only. Please sign in with your official @umbc.edu email.'
 
+<<<<<<< Updated upstream
+=======
+const ADMIN_EMAILS = [
+  'adenham112@gmail.com',
+  'csumah1@umbc.edu'
+  // Add more admin emails here if needed
+]
+
+>>>>>>> Stashed changes
 export default function HomePage() {
   const [view, setView] = useState('splash')
   const [currentUser, setCurrentUser] = useState(null)
