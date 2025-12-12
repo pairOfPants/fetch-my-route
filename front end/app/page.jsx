@@ -12,7 +12,8 @@ const NON_UMBC_ERROR_MESSAGE =
 
 const ADMIN_EMAILS = [
   'adenham112@gmail.com',
-  'csumah1@umbc.edu'
+  'csumah1@umbc.edu', 
+  'ermichalik1106@gmail.com'
   // Add more admin emails here if needed
 ]
 

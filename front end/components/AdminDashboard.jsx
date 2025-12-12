@@ -7,6 +7,7 @@ import MapRoutePage from "./MapRoutePage";
 const ADMIN_EMAILS = [
   "adenham112@gmail.com",
   'csumah1@umbc.edu',
+  'ermichalik1106@gmail.com'
   // Add more admin emails here
 ];
 
