@@ -261,11 +261,11 @@ While the core functionality of the system is intact, there are still a number o
 ##### Meet the Team:
 Aidan Denham, [@pairOfPants](https://github.com/pairOfPants)
 
-Alex Marbut, @
+Ethan Michalik, [@ethanm1106](https://github.com/ethanm1106)
 
 Celestine Sumah, @ 
 
-Ethan Michalik @
+Alex Marbut, @
 
 
 
