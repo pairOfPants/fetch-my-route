@@ -241,18 +241,19 @@ Navigating the mobile site is similar to navigation on a computer, but the horiz
 ## 🔮 Future Improvements
 While the core functionality of the system is intact, there are still a number of bugs to squash and features that would elevate this project from a mere proof-of-concept to a deployable, usable, scalable feature of the UMBC digital infrastructure. Below is a non-exhaustive list of future improvements that would be made to this project, if it were selected by our stakeholders to be adopted by UMBC.
 
-1. Add dog icon as live-location marker
+1. Users can report blocked routes and send an email notification to Admin with said route outage
+2. Add dog icon as live-location marker
     1.1 Optional: PawPrints only behind dog
-2. Give the person an outline so the icon stands out more
-3. User cannot save routes if they used "Map Click" to generate it
-4. General Scaling needs to be improved on mobile devices
-5. NextJS error upon runtime - Map already initialized error
-6. Website has some latency on older mobile devices
-7. Live location does not work on Linux (may not be an issue)
-8. PawPrints are not spaced at regular intervals
-9. High Contrast could have higher contrast
-10. Many buttons all over webpage - consolidate buttons
-11. Users can report blocked routes and send an email notification to Admin with said route outage
+3. Give the person an outline so the icon stands out more
+4. User cannot save routes if they used "Map Click" to generate it
+5. General Scaling needs to be improved on mobile devices
+6. NextJS error upon runtime - Map already initialized error
+7. Website has some latency on older mobile devices
+8. Live location does not work on Linux (may not be an issue)
+9. PawPrints are not spaced at regular intervals
+10. High Contrast could have higher contrast
+11. Many buttons all over webpage - consolidate buttons
+
 
 
 

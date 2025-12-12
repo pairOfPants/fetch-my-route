@@ -79,6 +79,20 @@ export default function RouteEditor({ isAdmin = false, onGoToUserView }) {
 
       try {
         L = (await import("leaflet")).default;
+        
+        // Import Leaflet CSS dynamically
+        if (typeof document !== 'undefined') {
+          const existingLink = document.querySelector('link[href*="leaflet"]');
+          if (!existingLink) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+            link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
+            link.crossOrigin = '';
+            document.head.appendChild(link);
+          }
+        }
+
         leafletRef.current = L;
 
         const map = L.map(newContainer, { zoomControl: false });
