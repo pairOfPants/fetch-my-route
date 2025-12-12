@@ -64,7 +64,7 @@ Although there are existing paper maps of nonstandard routes, procured by the De
 
 ### 📚 Helpful Documentation
 #### Use Case Diagram
-![Full Use Case Diagram](./front%20end/public/assets/diagrams/use-case/full-directions-use-case.png)
+![Full Use Case Diagram](./front%20end/public/assets/diagrams/use-case/full-use-case-diagram.png)
 
 ### 🗄️ Entity Relationship Diagram
 ![ER Diagram](./front%20end/public/assets/diagrams/entity-relation/ER.png)
