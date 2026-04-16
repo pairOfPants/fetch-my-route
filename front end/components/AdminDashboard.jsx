@@ -8,7 +8,7 @@ const ADMIN_EMAILS = [
   "adenham112@gmail.com",
   'csumah1@umbc.edu',
   'ermichalik1106@gmail.com'
-  // Add more admin emails here
+  // Temporary hardcoded list of admin emails. Fix for full production.
 ];
 
 export default function AdminDashboard({ user, onLogout }) {

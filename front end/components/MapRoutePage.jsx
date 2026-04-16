@@ -1,7 +1,16 @@
 'use client'
 
 import { useMemo, useRef, useState, useEffect } from "react";
+import { CAMPUS_BUILDINGS } from "@/lib/campusBuildings";
 import { getGeojsonEdits } from "@/lib/route";
+import {
+  buildGraphFromGeoJSON,
+  dijkstra,
+  findNearestNode,
+  formatMeters,
+  generateInstructionsWithContext,
+  haversine,
+} from "@/lib/mapRouteUtils";
 import {
   LogOut,
   Bookmark,
@@ -29,21 +38,19 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
-import { getRoute, isOSRMAvailable, generateBasicInstructions } from "@/lib/osrmClient";
+import { getRoute, isOSRMAvailable } from "@/lib/osrmClient";
 
 export default function MapRoutePage({ onBackToSplash, user, isAdmin = false, onGoToEditRoutes }) {
   const [leftPct, setLeftPct] = useState(50);
-  const [activeStep, setActiveStep] = useState(1);
   const [showSavedRoutes, setShowSavedRoutes] = useState(false);
-const [showNewRouteModal, setShowNewRouteModal] = useState(false);
-const [newRouteName, setNewRouteName] = useState("");
-const [newRouteStart, setNewRouteStart] = useState("");
-const [newRouteDest, setNewRouteDest] = useState("");
-const [newRouteStartSuggestions, setNewRouteStartSuggestions] = useState([]);
-const [newRouteDestSuggestions, setNewRouteDestSuggestions] = useState([]);
-const [newRouteErrors, setNewRouteErrors] = useState({ name: "", start: "", dest: "" });
-const [editingRoute, setEditingRoute] = useState(null);
-
+  const [showNewRouteModal, setShowNewRouteModal] = useState(false);
+  const [newRouteName, setNewRouteName] = useState("");
+  const [newRouteStart, setNewRouteStart] = useState("");
+  const [newRouteDest, setNewRouteDest] = useState("");
+  const [newRouteStartSuggestions, setNewRouteStartSuggestions] = useState([]);
+  const [newRouteDestSuggestions, setNewRouteDestSuggestions] = useState([]);
+  const [newRouteErrors, setNewRouteErrors] = useState({ name: "", start: "", dest: "" });
+  const [editingRoute, setEditingRoute] = useState(null);
 
   const [confirmRoute, setConfirmRoute] = useState(null);
   const [startInput, setStartInput] = useState("");
@@ -61,7 +68,7 @@ const [editingRoute, setEditingRoute] = useState(null);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [useOSRM, setUseOSRM] = useState(false);
-  const [instructions, setInstructions] = useState([]); // <-- Add state for instructions
+  const [instructions, setInstructions] = useState([]);
   const [showRouteToast, setShowRouteToast] = useState(false);
   const userDisplayName = user?.displayName || user?.email || null;
   const userId = user?.uid || null;
@@ -80,7 +87,7 @@ const [editingRoute, setEditingRoute] = useState(null);
   const mapRef = useRef(null);
   const leafletRef = useRef(null);
   const graphRef = useRef(null);
-  const drawnLayerRef = useRef(null); // Add this line
+  const drawnLayerRef = useRef(null);
   const startMarkerRef = useRef(null);
   const endMarkerRef = useRef(null);
   const routeLineRef = useRef(null);
@@ -93,7 +100,7 @@ const [editingRoute, setEditingRoute] = useState(null);
   const mapClickEnabledRef = useRef(false);
   const placingRef = useRef("start");
 
-  const pawMarkersRef = useRef([]); //for keeping track of paw print markers
+  const pawMarkersRef = useRef([]);
 
   // Live tracking state
   const [isTracking, setIsTracking] = useState(false);
@@ -225,9 +232,6 @@ useEffect(() => {
     window.addEventListener("touchmove", onMove);
     window.addEventListener("touchend", stop);
   };
-
-  const instructionCards = [];
-
 
   // close with ESC (both saved routes + confirm)
   useEffect(() => {
@@ -717,63 +721,7 @@ useEffect(() => {
   };
 
   const pillNextLabel = mapReady ? `Next click: ${placing === "start" ? "Start" : "Destination"}` : "Loading map...";
-  const campusBuildings = useMemo(
-    () => [
-    { name: 'Administration Building', lat: '39.253139642304824', lon: '-76.71346680103554' },
-    { name: 'Albin O. Kuhn Library & Gallery', lat: '39.25630', lon: '-76.71155' },
-    { name: 'Engineering Building', lat: '39.25457800522658', lon: '-76.7140007717771' },
-    { name: 'Retriever Activities Center (RAC)', lat: '39.25289', lon: '-76.71298' },
-    { name: 'University Center (UC)', lat: '39.254311897833894', lon: '-76.71321113149463' },
-    { name: 'Fine Arts Building', lat: '39.25507302014908', lon: '-76.7134835986718' },
-    { name: 'Performing Arts and Humanities Building (PAHB)', lat: '39.25519773199664', lon: '-76.71493830501481' },
-    { name: 'Math & Psychology Building', lat: '39.25414744528721', lon: '-76.71235531860366' },
-    { name: 'Biological Sciences Building', lat: '39.25477', lon: '-76.71217' },
-    { name: 'Chemistry Building', lat: '39.25501939795551', lon: '-76.71303157922023' },
-    { name: 'Physics Building', lat: '39.254509055300275', lon: '-76.70955550430352' },
-    { name: 'Information Technology/Engineering (ITE)', lat: '39.25384780762936', lon: '-76.71410470533095' },
-    { name: 'Public Policy Building', lat: '39.25532623674318', lon: '-76.70925261800328' },
-    { name: 'Sondheim Hall', lat: '39.25341011749078', lon: '-76.71285953326642' },
-    { name: 'Sherman Hall', lat: '39.25403', lon: '-76.71365' },
-    { name: 'The Commons', lat: '39.255054104325616', lon: '-76.71070371980493' },
-    { name: 'Patapsco Hall', lat: '39.255081965955036', lon: '-76.70673668410498' },
-    { name: 'Potomac Hall', lat: '39.25606238825957', lon: '-76.70651576586262' },
-    { name: 'Chesapeake Hall', lat: '39.256849988344115', lon: '-76.70873138610621' },
-    { name: 'Susquehanna Hall', lat: '39.25540', lon: '-76.70864' },
-    { name: 'Erickson Hall', lat: '39.25727595128962', lon: '-76.70971290743068' },
-    { name: 'Harbor Hall', lat: '39.2574527259495', lon: '-76.70849733643549' },
-    { name: 'Walker Avenue Apartments', lat: '39.25954838908427', lon: '-76.71396897666577' },
-    { name: 'West Hill Apartments', lat: '39.258901446872265', lon: '-76.71259174840102' },
-    { name: 'Hillside Apartments', lat: '39.2583895527449', lon: '-76.7090028757811' },
-    { name: 'True Grits Dining Hall', lat: '39.255776326112745', lon: '-76.70773529041553' },
-    { name: 'UMBC Event Center', lat: '39.25236663879639', lon: '-76.70744131697373' },
-    { name: 'Chesapeake Employers Insurance Arena', lat: '39.252', lon: '-76.70744131697373' },
-    { name: 'Administration Parking Garage', lat: '39.25201', lon: '-76.71284' },
-    { name: 'Commons Garage', lat: '39.253422965942974', lon: '-76.7094846596835' },
-    { name: 'Walker Avenue Garage', lat: '39.25727870467512', lon: '-76.71231647640951' },
-    { name: 'PAHB Parking Lot', lat: '39.255380076952584', lon: '-76.71460837990287' },
-    { name: 'UMBC Bookstore', lat: '39.254591718818936', lon: '-76.7108989975142' },
-    { name: 'UMBC Stadium', lat: '39.250562339226114', lon: '-76.70737195403173' },
-    { name: 'UMBC Technology Center', lat: '39.23471', lon: '-76.71377' },
-    { name: 'bwtech@UMBC North', lat: '39.24946312236066', lon: '-76.7144157716465' },
-    { name: 'bwtech@UMBC South', lat: '39.24813201069917', lon: '-76.71439688284313' },
-    { name: 'Interdisciplinary Life Sciences Building', lat: '39.25393191088295', lon: '-76.71108146644416' },
-    { name: 'Halal Shack', lat: '39.255054104325616', lon: '-76.71070371980493' },    
-    { name: 'Absurd Bird', lat: '39.255054104325616', lon: '-76.71070371980493' },
-    { name: 'Copperhead Jacks', lat: '39.255054104325616', lon: '-76.71070371980493' },
-    { name: 'Commons Market', lat: '39.255054104325616', lon: '-76.71070371980493' },
-    { name: 'Sushi Do', lat: '39.255054104325616', lon: '-76.71070371980493' },
-    { name: 'Dunkin Donuts', lat: '39.255054104325616', lon: '-76.71070371980493' },
-    { name: 'Piccola Italia', lat: '39.255054104325616', lon: '-76.71070371980493' },
-    { name: 'Indian Kitchen', lat: '39.255054104325616', lon: '-76.71070371980493' },
-    { name: 'Commons Sports Zone', lat: '39.255054104325616', lon: '-76.71070371980493' },
-    { name: 'Retriever Learning Center (RLC)', lat: '39.25630', lon: '-76.71155' },
-    { name: 'Writing Center', lat: '39.25630', lon: '-76.71155' },
-    { name: 'Einstein Bros Bagels', lat: '39.25630', lon: '-76.71155' },
-    { name: 'Undergraduate Admissions', lat: '39.25630', lon: '-76.71155' },
-    { name: 'Department of Financial Aid', lat: '39.25630', lon: '-76.71155' },
-],
-    []
-  );
+  const campusBuildings = CAMPUS_BUILDINGS;
 
   const loadConfirmedRoute = () => {
     if (!confirmRoute) return;
@@ -783,85 +731,18 @@ useEffect(() => {
     setShowSavedRoutes(false);
   };
 
-  const normalize = (s) => {
-  if (s == null) return "";
-  if (typeof s !== "string") {
-    try {
-      s = String(s);
-    } catch {
-      return "";
-    }
-  }
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-};
-
-/**
- * Validates and splits an input string into words
- * @param m The input string to validate and split (e.g. "Performing Arts & Humanities 305")
- * @returns Array of words from the input string
- */
-function validateInput(m) {
-  // Remove any leading/trailing whitespace
-  const trimmed = m.trim();
-  // Split on whitespace and filter out any empty strings
-  const words = trimmed.split(/\s+/).filter((word) => word.length > 0);
-  return words;
-}
-
-/**
- * Suggests buildings based on input words
- * @param input Array of words to match against building names
- * @param campusSuggestions Array of building suggestions with display_name property
- * @returns Filtered array of building names that match all input words
- */
-function suggestBuildingsFromInput(input, campusSuggestions) {
-  // Helper: compute Levenshtein distance between two strings
-  function levenshtein(a, b) {
-    const m = a.length;
-    const n = b.length;
-    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-    for (let i = 0; i <= m; i++) dp[i][0] = i;
-    for (let j = 0; j <= n; j++) dp[0][j] = j;
-    for (let i = 1; i <= m; i++) {
-      for (let j = 1; j <= n; j++) {
-        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-        dp[i][j] = Math.min(
-          dp[i - 1][j] + 1,
-          dp[i][j - 1] + 1,
-          dp[i - 1][j - 1] + cost
-        );
+  const normalize = (value) => {
+    if (value == null) return "";
+    if (typeof value !== "string") {
+      try {
+        value = String(value);
+      } catch {
+        return "";
       }
     }
-    return dp[m][n];
-  }
 
-  // Helper: decide if an input word matches a target word roughly
-  function wordMatches(inputWord, targetWord) {
-    const a = inputWord.toLowerCase();
-    const b = targetWord.toLowerCase();
-    if (b.indexOf(a) !== -1) return true; // substring
-    if (a.indexOf(b) !== -1) return true; // inverse substring
-    // Accept small typos: allow edit distance relative to length
-    const maxDist = Math.max(1, Math.floor(Math.min(a.length, b.length) / 4));
-    return levenshtein(a, b) <= maxDist;
-  }
-
-  // We'll include a building when ANY input word matches ANY word in the building's display name.
-  // This is intentionally permissive to surface candidates when the user makes small typos.
-  return campusSuggestions.filter((b) => {
-    const name = b.display_name || "";
-    // Split the building name into words (also split on punctuation)
-    const nameWords = name.split(/[^\w]+/).filter(Boolean);
-    for (const iw of input) {
-      for (const nw of nameWords) {
-        if (wordMatches(iw, nw)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  });
-}
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  };
 
 const handleInputChange = (which, value) => {
   if (which === "start") setStartInput(value);
@@ -1665,24 +1546,7 @@ const handleSuggestionSelect = (which, suggestion) => {
               )}
             </div>
 
-            <div className="flex-1 overflow-auto px-4 pb-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                {instructionCards.map((s, idx) => (
-                  <button
-                    key={s.id}
-                    onClick={() => setActiveStep(s.id)}
-                    className={`text-left rounded-xl shadow-sm p-4 transition border ${
-                      activeStep === s.id
-                        ? "bg-white/15 border-white/40"
-                        : "bg-white/10 border-white/20 hover:bg-white/15"
-                    }`}
-                    style={{ color: "rgba(255,255,255,0.92)" }}
-                  >
-                    {idx + 1}. {s.text}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <div className="flex-1 overflow-auto px-4 pb-6" />
           </motion.div>
         </div>
       </div>
@@ -2127,212 +1991,6 @@ const handleSuggestionSelect = (which, suggestion) => {
   );
 }
 
-function buildGraphFromGeoJSON(L, geojson) {
-  const nodes = new Map();
-  const bounds = L.latLngBounds([]);
-  const displayFeatures = [];
-  // Collect building areas (polygons) for name/context lookup
-  const buildingAreas = [];
-
-  const nodeKey = (lat, lng) => `${lat.toFixed(6)},${lng.toFixed(6)}`;
-
-  const addNode = (lat, lng) => {
-    const key = nodeKey(lat, lng);
-    if (!nodes.has(key)) {
-      nodes.set(key, { lat, lng, neighbors: new Map() });
-    }
-    bounds.extend([lat, lng]);
-    return key;
-  };
-
-  const addEdge = (aKey, bKey) => {
-    if (aKey === bKey) return;
-    const a = nodes.get(aKey);
-    const b = nodes.get(bKey);
-    const w = haversine(a.lat, a.lng, b.lat, b.lng);
-    a.neighbors.set(bKey, Math.min(a.neighbors.get(bKey) ?? Infinity, w));
-    b.neighbors.set(aKey, Math.min(b.neighbors.get(aKey) ?? Infinity, w));
-  };
-
-  const shouldUseFeature = (feat) => {
-    if (!feat || !feat.geometry) return false;
-    const t = feat.geometry.type;
-    if (t !== "LineString" && t !== "MultiLineString") return false;
-    const p = feat.properties || {};
-    const tag = p.highway || p.footway || p.path || p.sidewalk || p.cycleway || p.pedestrian || p.service || p.track || p.steps;
-    if (p.power || p.fence_type || p.barrier) return false;
-    if (typeof tag !== "undefined") return true;
-    return true;
-  };
-
-  const processLine = (coords) => {
-    if (!coords || coords.length < 2) return;
-    let prevKey = null;
-    coords.forEach(([lng, lat]) => {
-      const key = addNode(lat, lng);
-      if (prevKey) addEdge(prevKey, key);
-      prevKey = key;
-    });
-  };
-
-  // Helper: collect building polygons for later name lookup
-  const collectBuildingArea = (feat) => {
-    const props = feat.properties || {};
-    const name = props.name || props["building:name"] || null;
-    const isBuildingTagged = props.building || name;
-    if (!isBuildingTagged) return;
-
-    const geom = feat.geometry;
-    const polySets =
-      geom.type === "Polygon"
-        ? [geom.coordinates]
-        : geom.type === "MultiPolygon"
-        ? geom.coordinates
-        : null;
-    if (!polySets) return;
-
-    // Store as arrays of rings in [lat,lng] for point-in-polygon tests
-    const rings = polySets.map((poly) =>
-      poly.map((ring) => ring.map(([lon, lat]) => [lat, lon]))
-    );
-    buildingAreas.push({ name, props, rings });
-  };
-
-  (geojson.features || []).forEach((feat) => {
-    if (!feat || !feat.geometry) return;
-    const g = feat.geometry;
-    if (g.type === "LineString") {
-      if (shouldUseFeature(feat)) {
-        processLine(g.coordinates);
-        displayFeatures.push(feat);
-      }
-    } else if (g.type === "MultiLineString") {
-      if (shouldUseFeature(feat)) {
-        g.coordinates.forEach((part) => processLine(part));
-        displayFeatures.push(feat);
-      }
-    } else if (g.type === "Polygon" || g.type === "MultiPolygon") {
-      collectBuildingArea(feat);
-    }
-  });
-
-  return { nodes, bounds, displayFeatures, buildingAreas };
-}
-
-function dijkstra(graph, startKey, endKey) {
-  const dist = new Map();
-  const prev = new Map();
-  const visited = new Set();
-  const pq = new MinHeap();
-
-  graph.nodes.forEach((_, k) => dist.set(k, Infinity));
-  dist.set(startKey, 0);
-  pq.push({ key: startKey, d: 0 });
-
-  while (!pq.isEmpty()) {
-    const { key: u } = pq.pop();
-    if (visited.has(u)) continue;
-    visited.add(u);
-    if (u === endKey) break;
-
-    const uNode = graph.nodes.get(u);
-    if (!uNode) continue;
-
-    for (const [v, w] of uNode.neighbors) {
-      if (visited.has(v)) continue;
-      const alt = (dist.get(u) ?? Infinity) + w;
-      if (alt < (dist.get(v) ?? Infinity)) {
-        dist.set(v, alt);
-        prev.set(v, u);
-        pq.push({ key: v, d: alt });
-      }
-    }
-  }
-
-  const path = [];
-  let u = endKey;
-  if (!prev.has(u) && u !== startKey) {
-    return { path: [], distance: Infinity };
-  }
-  while (u) {
-    path.unshift(u);
-    if (u === startKey) break;
-    u = prev.get(u);
-  }
-  return { path, distance: dist.get(endKey) ?? Infinity };
-}
-
-class MinHeap {
-  constructor() {
-    this.a = [];
-  }
-  isEmpty() {
-    return this.a.length === 0;
-  }
-  push(x) {
-    this.a.push(x);
-    this.bubbleUp(this.a.length - 1);
-  }
-  pop() {
-    if (this.a.length === 1) return this.a.pop();
-    const top = this.a[0];
-    this.a[0] = this.a.pop();
-    this.bubbleDown(0);
-    return top;
-  }
-  bubbleUp(i) {
-    while (i > 0) {
-      const p = Math.floor((i - 1) / 2);
-      if (this.a[p].d <= this.a[i].d) break;
-      [this.a[p], this.a[i]] = [this.a[i], this.a[p]];
-      i = p;
-    }
-  }
-  bubbleDown(i) {
-    const n = this.a.length;
-    while (true) {
-      const l = 2 * i + 1;
-      const r = 2 * i + 2;
-      let m = i;
-      if (l < n && this.a[l].d < this.a[m].d) m = l;
-      if (r < n && this.a[r].d < this.a[m].d) m = r;
-      if (m === i) break;
-      [this.a[m], this.a[i]] = [this.a[i], this.a[m]];
-      i = m;
-    }
-  }
-}
-
-function findNearestNode(lat, lng, graph) {
-  let best = null;
-  let bestD = Infinity;
-  for (const [k, n] of graph.nodes) {
-    const d = haversine(lat, lng, n.lat, n.lng);
-    if (d < bestD) {
-      bestD = d;
-      best = { key: k, lat: n.lat, lng: n.lng, d };
-    }
-  }
-  return best;
-}
-
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const toRad = (x) => (x * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-function formatMeters(m) {
-  if (m < 1000) return `${m.toFixed(0)} m`;
-  return `${(m / 1000).toFixed(2)} km`;
-}
-
 function Suggestions({ list, onSelect }) {
   return (
     <ul className="absolute left-0 right-0 top-full mt-1 rounded-lg border border-gray-200 bg-white text-black shadow z-50 max-h-64 overflow-auto">
@@ -2387,332 +2045,3 @@ function Modal({ title, children, onClose }) {
   );
 }
 
-/***Below two functions are helper functions for drawing the pawprint markers evenly */
-// Calculate distance between two latlngs in meters
-function distanceBetween(a, b) {
-  return mapRef.current.distance(a, b); // Leaflet's built-in distance
-}
-
-// Returns array of points spaced every 'spacing' meters along the polyline
-function getEvenlySpacedPoints(latlngs, spacing = 10) {
-  const points = [];
-  if (latlngs.length === 0) return points;
-
-  let remaining = 0;
-  for (let i = 0; i < latlngs.length - 1; i++) {
-    const start = latlngs[i];
-    const end = latlngs[i + 1];
-    const segmentDist = distanceBetween(start, end);
-    let distAlongSegment = spacing - remaining;
-
-    while (distAlongSegment < segmentDist) {
-      const t = distAlongSegment / segmentDist;
-      const lat = start.lat + t * (end.lat - start.lat);
-      const lng = start.lng + t * (end.lng - start.lng);
-      points.push(L.latLng(lat, lng));
-      distAlongSegment += spacing;
-    }
-
-    remaining = distAlongSegment - segmentDist;
-  }
-
-  return points;
-}
-
-// Helper to extract floor info from OSM ways (features)
-function getFloorForNode(lat, lng, graph) {
-  // Find the feature (way) that contains this node and has a floor tag
- 
-  for (const feat of graph.displayFeatures || []) {
-    if (!feat.geometry) continue;
-    let coordsArr = [];
-    if (feat.geometry.type === "LineString") {
-      coordsArr = [feat.geometry.coordinates];
-    } else if (feat.geometry.type === "MultiLineString") {
-      coordsArr = feat.geometry.coordinates;
-    }
-    for (const coords of coordsArr) {
-      for (const [lon, lat2] of coords) {
-        if (Math.abs(lat2 - lat) < 1e-6 && Math.abs(lon - lng) < 1e-6) {
-          if (feat.properties && feat.properties["floor:"]) {
-            return feat.properties["floor:"];
-          }
-        }
-      }
-    }
-  }
-  return null;
-}
-
-// Enhanced instruction generator with floor transitions
-function generateInstructionsWithFloors(coordinates, graph) {
-  if (!coordinates || coordinates.length < 2) return [];
-
-  function toRad(deg) { return deg * Math.PI / 180; }
-  function toDeg(rad) { return rad * 180 / Math.PI; }
-  function haversine(lat1, lon1, lat2, lon2) {
-    const R = 6371000;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
-  }
-  function bearing(lat1, lon1, lat2, lon2) {
-    const dLon = toRad(lon2 - lon1);
-    const y = Math.sin(dLon) * Math.cos(toRad(lat2));
-    const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
-              Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
-    return (toDeg(Math.atan2(y, x)) + 360) % 360;
-  }
-
-  const instructions = [];
-  let prevBearing = null;
-  let prevCoord = coordinates[0];
-  let distanceSinceLast = 0;
-  let prevFloor = null;
-
-  // Try to get initial floor
-  if (graph && graph.displayFeatures) {
-    const [lon, lat] = prevCoord;
-    prevFloor = getFloorForNode(lat, lon, graph);
-  }
-
-  for (let i = 1; i < coordinates.length; i++) {
-    const [lon1, lat1] = prevCoord;
-    const [lon2, lat2] = coordinates[i];
-    const dist = haversine(lat1, lon1, lat2, lon2);
-    const currBearing = bearing(lat1, lon1, lat2, lon2);
-
-    // Floor detection
-    let currFloor = prevFloor;
-    if (graph && graph.displayFeatures) {
-      currFloor = getFloorForNode(lat2, lon2, graph) ?? prevFloor;
-    }
-
-    // Floor transition
-    if (prevFloor !== null && currFloor !== null && currFloor !== prevFloor) {
-      const upOrDown = Number(currFloor) > Number(prevFloor) ? "up" : "down";
-      instructions.push({
-        type: `Take elevator ${upOrDown} to floor ${currFloor}`,
-        at: i,
-        distance: Math.round(distanceSinceLast),
-      });
-      distanceSinceLast = 0;
-      prevFloor = currFloor;
-    }
-
-    // Turn detection
-    if (prevBearing !== null) {
-      let turnAngle = currBearing - prevBearing;
-      if (turnAngle > 180) turnAngle -= 360;
-      if (turnAngle < -180) turnAngle += 360;
-
-      if (Math.abs(turnAngle) > 30) { // threshold for a "turn"
-        instructions.push({
-          type: turnAngle > 0 ? 'Turn right' : 'Turn left',
-          at: i,
-          distance: Math.round(distanceSinceLast),
-        });
-        distanceSinceLast = 0;
-      }
-    }
-
-    distanceSinceLast += dist;
-    prevBearing = currBearing;
-    prevCoord = coordinates[i];
-  }
-
-  // Final instruction
-  instructions.push({
-    type: 'Arrive at destination',
-    at: coordinates.length - 1,
-    distance: Math.round(distanceSinceLast),
-  });
-
-  return instructions;
-}
-
-// Helper: find feature that contains a node [lat,lng]
-function getFeatureAtNode(lat, lng, graph) {
-  if (!graph?.displayFeatures) return null;
-  for (const feat of graph.displayFeatures) {
-    const g = feat?.geometry;
-    if (!g) continue;
-    const sets = g.type === "LineString" ? [g.coordinates] :
-                 g.type === "MultiLineString" ? g.coordinates : [];
-    for (const coords of sets) {
-      for (const [lon2, lat2] of coords) {
-        if (Math.abs(lat2 - lat) < 1e-6 && Math.abs(lon2 - lng) < 1e-6) {
-          return feat;
-        }
-      }
-    }
-  }
-  return null;
-}
-
-// Point-in-polygon (ray casting) for one ring
-function pointInRing(lat, lng, ring) {
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [yi, xi] = ring[i]; // lat, lng
-    const [yj, xj] = ring[j];
-    const intersect =
-      ((xi > lng) !== (xj > lng)) &&
-      (lat < ((yj - yi) * (lng - xi)) / (xj - xi + 1e-12) + yi);
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
-
-// Polygon with holes: first ring is outer, subsequent rings are holes
-function pointInPolygon(lat, lng, rings) {
-  if (!rings || rings.length === 0) return false;
-  const outer = rings[0];
-  if (!pointInRing(lat, lng, outer)) return false;
-  // Exclude if inside any hole
-  for (let h = 1; h < rings.length; h++) {
-    if (pointInRing(lat, lng, rings[h])) return false;
-  }
-  return true;
-}
-
-// Helper: resolve building context at a node using building polygons
-function getBuildingAtNode(lat, lng, graph) {
-  const areas = graph?.buildingAreas || [];
-  for (const area of areas) {
-    // MultiPolygon: area.rings is an array of polygons; each polygon is array of rings
-    for (const rings of area.rings) {
-      if (pointInPolygon(lat, lng, rings)) {
-        return area;
-      }
-    }
-  }
-  return null;
-}
-
-// Helper: extract floor and building info at a node
-function getContextForNode(lat, lng, graph) {
-  const lineFeat = getFeatureAtNode(lat, lng, graph);
-  const lineProps = lineFeat?.properties || {};
-  const levelTag = lineProps.level ?? null;
-
-  // Prefer building polygon name over line feature names
-  const buildingArea = getBuildingAtNode(lat, lng, graph);
-  const buildingName = buildingArea?.name || lineProps["building:name"] || null;
-
-  const isBuilding = Boolean(buildingArea) || lineProps.building === "yes" || lineProps["indoor"] === "room";
-  const vertical = lineProps.highway === "steps" || lineProps["conveying"] === "yes" || lineProps["elevator"] === "yes";
-
-  return { floor: levelTag, buildingName, isBuilding, vertical };
-}
-
-// Enhanced instruction generator: building entry + floor transitions + fewer turns
-function generateInstructionsWithContext(coordinates, graph) {
-  if (!coordinates || coordinates.length < 2) return [];
-
-  function toRad(deg) { return deg * Math.PI / 180; }
-  function toDeg(rad) { return rad * 180 / Math.PI; }
-  function haversine(lat1, lon1, lat2, lon2) {
-    const R = 6371000;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
-  }
-  function bearing(lat1, lon1, lat2, lon2) {
-    const dLon = toRad(lon2 - lon1);
-    const y = Math.sin(dLon) * Math.cos(toRad(lat2));
-    const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
-              Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
-    return (toDeg(Math.atan2(y, x)) + 360) % 360;
-  }
-
-  const instructions = [];
-  let prevBearing = null;
-  let prevCoord = coordinates[0];
-  let distanceSinceLast = 0;
-
-  let prevCtx = (() => {
-    const [lon, lat] = prevCoord;
-    return getContextForNode(lat, lon, graph);
-  })();
-
-  const TURN_THRESHOLD_DEG = 50;  // less chatty
-  const MIN_SEGMENT_EMIT_M = 18;  // avoid tiny segments
-
-  for (let i = 1; i < coordinates.length; i++) {
-    const [lon1, lat1] = prevCoord;
-    const [lon2, lat2] = coordinates[i];
-    const dist = haversine(lat1, lon1, lat2, lon2);
-    const currBearing = bearing(lat1, lon1, lat2, lon2);
-    const currCtx = getContextForNode(lat2, lon2, graph);
-
-    // Building entry
-    if (currCtx?.isBuilding && !prevCtx?.isBuilding) {
-      const bName = currCtx.buildingName ? ` ${currCtx.buildingName}` : "";
-      instructions.push({
-        type: `Enter${bName}`,
-        at: i,
-        distance: Math.round(distanceSinceLast),
-      });
-      distanceSinceLast = 0;
-    }
-
-    // Floor transitions (prefer explicit elevator wording if vertical segment flagged)
-    const prevFloorNum = prevCtx?.floor != null ? Number(prevCtx.floor) : null;
-    const currFloorNum = currCtx?.floor != null ? Number(currCtx.floor) : null;
-    if (prevFloorNum != null && currFloorNum != null && currFloorNum !== prevFloorNum) {
-      const dir = currFloorNum > prevFloorNum ? "up" : "down";
-      const verb = currCtx?.vertical ? "Take elevator" : "Go";
-      instructions.push({
-        type: `${verb} ${dir} to floor ${currFloorNum}`,
-        at: i,
-        distance: Math.round(distanceSinceLast),
-      });
-      distanceSinceLast = 0;
-    }
-
-    // Turn detection (reduced noise)
-    if (prevBearing !== null) {
-      let turnAngle = currBearing - prevBearing;
-      if (turnAngle > 180) turnAngle -= 360;
-      if (turnAngle < -180) turnAngle += 360;
-
-      if (Math.abs(turnAngle) >= TURN_THRESHOLD_DEG && distanceSinceLast >= MIN_SEGMENT_EMIT_M) {
-        instructions.push({
-          type: turnAngle > 0 ? "Turn right" : "Turn left",
-          at: i,
-          distance: Math.round(distanceSinceLast),
-        });
-        distanceSinceLast = 0;
-      }
-    }
-
-    distanceSinceLast += dist;
-    prevBearing = currBearing;
-    prevCoord = coordinates[i];
-    prevCtx = currCtx;
-  }
-
-  // Final instruction
-  instructions.push({
-    type: "Arrive at destination",
-    at: coordinates.length - 1,
-    distance: Math.round(distanceSinceLast),
-  });
-
-  // Collapse duplicates and micro-segments
-  const filtered = [];
-  for (const inst of instructions) {
-    const last = filtered[filtered.length - 1];
-    if (last && last.type === inst.type) {
-      last.distance += inst.distance;
-    } else {
-      filtered.push(inst);
-    }
-  }
-  return filtered;
-}
